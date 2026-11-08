@@ -14,9 +14,6 @@ const nextConfig = {
   outputFileTracingIncludes: {
     "/api/radar/tokens": ["./data/radar-snapshot.json"],
   },
-  async rewrites() {
-    return { beforeFiles: [{ source: "/", destination: "/bot.html" }] };
-  },
   async headers() {
     return [
       {
