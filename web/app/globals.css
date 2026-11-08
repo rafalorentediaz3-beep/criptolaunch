@@ -1,0 +1,347 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply text-neutral-100 antialiased selection:bg-lime-900/60;
+    background-color: #0a0a0a;
+    background-image:
+      linear-gradient(rgba(10, 10, 10, 0.52), rgba(10, 10, 10, 0.6)),
+      url("/beach-background.png");
+    background-position: left top;
+    background-size: auto max(100vh, 49.1vw);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
+}
+
+/* Glassy RainbowKit modal (wallet connect / account) */
+[data-rk] {
+  --rk-colors-modalBackground: rgba(23, 23, 23, 0.55) !important;
+  --rk-colors-modalBorder: rgba(255, 255, 255, 0.08) !important;
+  --rk-colors-modalBackdrop: rgba(0, 0, 0, 0.5) !important;
+}
+[data-rk] ._9pm4ki5 {
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-neutral-800 bg-neutral-900;
+  }
+
+  .token-glass {
+    @apply rounded-[24px] border border-white/15 bg-neutral-950/55 shadow-[0_22px_60px_-30px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-2xl backdrop-saturate-150;
+  }
+
+  .token-glass-inset {
+    @apply border-white/10 bg-white/[0.045] backdrop-blur-xl;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-neutral-100 text-neutral-900 hover:bg-white;
+  }
+
+  .btn-secondary {
+    @apply btn border border-neutral-800 bg-neutral-900 text-neutral-300 hover:border-neutral-700 hover:bg-neutral-800 hover:text-neutral-50;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-500/20 text-red-400 ring-1 ring-inset ring-red-500/40 hover:bg-red-500/30;
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-neutral-800 bg-neutral-900 px-3.5 py-2.5 text-neutral-100 placeholder-neutral-500 outline-none transition-colors focus:border-neutral-600 focus:ring-4 focus:ring-white/5;
+  }
+
+  .label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wider text-neutral-500;
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded-lg bg-neutral-800;
+  }
+
+    .launch-cta-border {
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
+      border-radius: 1rem;
+      padding: 1px;
+      background: #f6bd18;
+      box-shadow:
+        0 0 0 1px rgba(157, 88, 0, 0.2),
+        0 10px 28px -14px rgba(211, 132, 0, 0.95);
+    }
+
+    .launch-cta-border::before {
+      position: absolute;
+      inset: -70%;
+      z-index: -1;
+      background: conic-gradient(
+        from 0deg,
+        transparent 0deg 300deg,
+        #fffbd0 316deg,
+        #fff06a 330deg,
+        #d77b00 347deg,
+        transparent 360deg
+      );
+      content: "";
+      animation: launch-border-spin 2.8s linear infinite;
+    }
+
+    .launch-cta-border > button {
+      position: relative;
+      z-index: 1;
+      border-radius: calc(1rem - 1px);
+    }
+  }
+
+  @keyframes launch-border-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .launch-warning {
+    animation: launch-warning-in-out 4.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes launch-warning-in-out {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -140%);
+    }
+    16%,
+    78% {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(-50%, -140%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .launch-cta-border::before {
+      animation: none;
+    }
+    .launch-warning {
+      animation: none;
+    }
+  }
+
+/* Ticker-strip marquee: content is rendered twice, shift by exactly half. */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 40s linear infinite;
+}
+
+.hot-tagline {
+  position: relative;
+  background: linear-gradient(90deg, #ff3d67 0%, #ff713d 24%, #ffd166 48%, #ff8a3d 70%, #ff3d67 100%);
+  background-size: 220% 100%;
+  background-clip: text;
+  color: #ff8a3d;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: hot-tagline-shimmer 5s linear infinite, hot-tagline-glow 2.6s ease-in-out infinite;
+}
+
+.hot-tagline::after {
+  position: absolute;
+  bottom: -10px;
+  left: 50%;
+  width: min(190px, 55%);
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(255, 91, 45, .48) 0%, rgba(255, 61, 103, .16) 46%, transparent 74%);
+  content: "";
+  filter: blur(7px);
+  opacity: .7;
+  transform: translateX(-50%);
+  animation: hot-tagline-ember 2.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes hot-tagline-shimmer {
+  to { background-position: -220% 0; }
+}
+
+@keyframes hot-tagline-glow {
+  0%, 100% { filter: drop-shadow(0 0 5px rgba(255, 74, 45, .42)) drop-shadow(0 0 14px rgba(255, 45, 115, .18)); }
+  50% { filter: drop-shadow(0 0 8px rgba(255, 153, 51, .72)) drop-shadow(0 0 22px rgba(255, 45, 115, .34)); }
+}
+
+@keyframes hot-tagline-ember {
+  0%, 100% { opacity: .45; transform: translateX(-50%) scaleX(.86); }
+  50% { opacity: .8; transform: translateX(-50%) scaleX(1.08); }
+}
+
+/* Respect reduced-motion: freeze the ticker for vestibular-sensitive users. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
+  .hot-tagline, .hot-tagline::after {
+    animation: none;
+  }
+}
+
+/* Live-buy feedback for the Discover grid ("Recent buys"). */
+@layer components {
+  /* Self-limiting green ring glow on a freshly-bought token card. TokenCard
+     keys it by the buy timestamp so back-to-back buys re-trigger the flash. */
+  .buy-flash-ring {
+    @apply pointer-events-none absolute inset-0 rounded-[28px];
+    animation: buy-flash 1.4s ease-out both;
+  }
+
+  /* Small "bought" chip over the card image; fades away on its own. */
+  .buy-chip {
+    @apply pointer-events-none absolute bottom-2 left-2 rounded border border-[#CCFF00]/40 bg-[#CCFF00]/10 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-[#CCFF00] backdrop-blur-md;
+    animation: buy-chip 2.6s ease-out both;
+  }
+
+  /* Gentle fade-in when a card mounts (new launch arrives, tab/sort switch).
+     Opacity-only so it never fights the FLIP transform. */
+  .card-enter {
+    animation: card-enter 180ms ease-out both;
+  }
+}
+
+@keyframes buy-flash {
+  0% {
+    opacity: 0;
+    box-shadow:
+      inset 0 0 0 1px rgba(204, 255, 0, 0),
+      0 0 0 0 rgba(204, 255, 0, 0);
+  }
+  25% {
+    opacity: 1;
+    box-shadow:
+      inset 0 0 0 1px rgba(204, 255, 0, 0.9),
+      0 0 22px 2px rgba(204, 255, 0, 0.35);
+  }
+  100% {
+    opacity: 0;
+    box-shadow:
+      inset 0 0 0 1px rgba(204, 255, 0, 0),
+      0 0 0 0 rgba(204, 255, 0, 0);
+  }
+}
+
+@keyframes buy-chip {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes card-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .buy-flash-ring,
+  .buy-chip,
+  .card-enter {
+    animation: none;
+  }
+}
+
+/* Soft price-marker pulse keeps the current point visible without moving it. */
+.token-chart-live-marker {
+  box-shadow:
+    0 0 0 1px rgba(251, 191, 36, 0.95),
+    0 0 10px rgba(245, 158, 11, 0.65);
+  animation: token-price-pulse 2s ease-in-out infinite;
+}
+
+@keyframes token-price-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.95),
+      0 0 10px rgba(245, 158, 11, 0.65);
+  }
+  50% {
+    opacity: 0.94;
+    box-shadow:
+      0 0 0 4px rgba(251, 191, 36, 0.42),
+      0 0 22px rgba(245, 158, 11, 0.95);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .token-chart-live-marker {
+    animation: none;
+  }
+}
+
+/* Ambient background: faint green dollar particles drifting upward. */
+@keyframes money-rise {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 0;
+  }
+  8% {
+    opacity: var(--money-opacity, 0.16);
+  }
+  92% {
+    opacity: var(--money-opacity, 0.16);
+  }
+  100% {
+    transform: translate3d(var(--money-drift, 24px), -115vh, 0) rotate(12deg);
+    opacity: 0;
+  }
+}
+
+.money-particle {
+  position: absolute;
+  bottom: -8%;
+  left: var(--money-left, 50%);
+  color: #22c55e;
+  animation: money-rise var(--money-duration, 18s) linear infinite;
+  animation-delay: var(--money-delay, 0s);
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .money-particle {
+    animation: none;
+    opacity: 0;
+  }
+}

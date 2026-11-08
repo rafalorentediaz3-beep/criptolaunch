@@ -1,0 +1,1114 @@
+"use client";
+
+import { useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, ImagePlus, Loader2, Percent, Search, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { bytesToHex, createPublicClient, custom, decodeEventLog, erc20Abi, getAddress, isAddress } from "viem";
+import { useAccount, useConnectorClient, usePublicClient, useReadContracts, useSignMessage } from "wagmi";
+import { potatoCurvePadAbi, potatoV4PadAbi } from "@/lib/abi";
+import { robinhoodChain, SITE_URL } from "@/lib/config";
+import { usePad, useTx } from "@/lib/hooks";
+import { useAncientTokens } from "@/lib/ancient";
+import { DESCRIPTION_MAX, tokenDescriptionHash } from "@/lib/feedback/message";
+import { signAction } from "@/lib/feedback/sign";
+import { formatEth, normalizeSocialUrl, resolveImageUri, tryParseEther } from "@/lib/format";
+import type { RobinhoodStock } from "@/lib/stocks";
+import { ConnectGate } from "@/components/ConnectGate";
+import { NotDeployed } from "@/components/NotDeployed";
+import { TxStatus } from "@/components/TxStatus";
+import { TokenAvatar } from "@/components/TokenAvatar";
+
+/**
+ * The treasury always takes half the WETH fees; the other half is the creator's.
+ * A holder-rewards launch splits THAT half between the creator and holders, so
+ * the creator's cut of total fees runs 0…50%.
+ */
+const CREATOR_HALF_PCT = 50;
+/**
+ * Largest creator cut a reward launch accepts. The pad rejects exactly
+ * CREATOR_HALF_PCT (`creatorFeeBps >= CREATOR_FEE_SHARE_BPS -> InvalidConfig`),
+ * because that pays holders zero while the token still carries the holder-rewards
+ * badge. Keep the slider strictly inside the contract's bound so the form cannot
+ * offer a launch that reverts.
+ */
+const MAX_CREATOR_CUT_PCT = CREATOR_HALF_PCT - 5;
+const inputCls =
+  "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 placeholder-neutral-400 outline-none transition-colors focus:border-neutral-400 focus:ring-4 focus:ring-neutral-900/5";
+const labelCls = "text-[10px] font-bold uppercase tracking-wider text-neutral-500";
+
+let stockCatalogueCache: RobinhoodStock[] | null = null;
+let stockCatalogueRequest: Promise<RobinhoodStock[]> | null = null;
+function loadStockCatalogue() {
+  if (stockCatalogueCache) return Promise.resolve(stockCatalogueCache);
+  if (!stockCatalogueRequest) {
+    stockCatalogueRequest = fetch("/api/robinhood/stocks?v=4", {
+      cache: "force-cache",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("stock catalogue unavailable");
+        const data = (await response.json()) as { stocks?: RobinhoodStock[] };
+        stockCatalogueCache = data.stocks ?? [];
+        return stockCatalogueCache;
+      })
+      .finally(() => {
+        stockCatalogueRequest = null;
+      });
+  }
+
+  return stockCatalogueRequest;
+}
+
+function launchSimulationError(error: unknown): string {
+  const shortMessage =
+    error && typeof error === "object" && "shortMessage" in error
+      ? String((error as { shortMessage: unknown }).shortMessage)
+      : "";
+  if (shortMessage.includes("0xd81b2f2e")) {
+    return "The deployed V4 PositionManager requires Permit2 authorization. V4 launches need the updated pad deployment.";
+  }
+  return shortMessage || "The network rejected this launch before signing.";
+}
+
+function StockLogo({ stock, custom = false }: { stock: RobinhoodStock; custom?: boolean }) {
+  const [source, setSource] = useState(stock.imageUrl);
+  if (custom) {
+    if (!source) {
+      return (
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white/70">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-400" aria-label="Loading logo" />
+        </span>
+      );
+    }
+    return (
+      <TokenAvatar
+        address={stock.address}
+        imageURI={source || undefined}
+        size="sm"
+        className="h-6 w-6 rounded-full border-0"
+      />
+    );
+  }
+  return (
+    source ? (
+      <img
+        src={source}
+        alt={`${stock.name} logo`}
+        loading="eager"
+        decoding="async"
+        className="h-6 w-6 shrink-0 rounded-full object-contain p-0"
+        onError={() => {
+          const localFallback = `/stock-logos/${encodeURIComponent(stock.symbol)}.png`;
+          if (source !== localFallback) setSource(localFallback);
+          else setSource("");
+        }}
+      />
+    ) : (
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-bold text-neutral-600">
+        {stock.symbol.slice(0, 1)}
+      </span>
+    )
+  );
+}
+
+export default function CreatePage() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  // Curve pad is the PRIMARY launcher: every new launch (plain or holder-rewards)
+  // goes here. The direct pad stays read-only for coins already launched on it.
+  const { curvePad, v4Pad, chainId, canLaunch, canV4Launch } = usePad();
+  const canCreate = canLaunch || canV4Launch;
+  const tx = useTx();
+  const publicClient = usePublicClient({ chainId });
+  const { data: connectorClient } = useConnectorClient({ chainId });
+  const pairReadClient = useMemo(
+    () => connectorClient
+      ? createPublicClient({ chain: robinhoodChain, transport: custom(connectorClient.transport) })
+      : publicClient,
+    [connectorClient, publicClient],
+  );
+  const { tokens: ancientTokens } = useAncientTokens();
+  const { address: userAddress } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+
+  // Dev-buy cap. The atomic creator buy runs in the launch block (anti-snipe
+  // active) and the creator is NOT exempt, so buying > MAX_WALLET reverts the
+  // launch with DevBuyExceedsCap. MAX_WALLET is TOTAL_SUPPLY / 50 — 2% of
+  // supply, i.e. 20M tokens. We estimate the ETH that buys 20M tokens off the
+  // single-sided-v3 curve (starting at the opening price) so the form can warn
+  // before submitting. Read the per-deployment start FDV on-chain.
+  const { data: curveConsts } = useReadContracts({
+    allowFailure: true,
+    contracts: [{ address: curvePad, abi: potatoCurvePadAbi, functionName: "actualStartFdv" }],
+    query: { enabled: canLaunch },
+  });
+  const maxDevBuyWei = useMemo<bigint | undefined>(() => {
+    const startFdv = curveConsts?.[0]?.result as bigint | undefined;
+    if (startFdv === undefined || startFdv === 0n) return undefined;
+    // Whole-token curve math (floats are fine for a UI bound). The FULL 1B supply
+    // is single-sided liquidity L over [p_floor, p_top] (p_top = 256x the start FDV
+    // for the 80/20 split); buying M tokens from the floor costs L·(√p1 − √p_floor)
+    // where 1/√p1 = 1/√p_floor − M/L.
+    const SUPPLY = 1e9,
+      M = 2e7; // MAX_WALLET = TOTAL_SUPPLY / 50, i.e. 2% of supply
+    const startEth = Number(startFdv) / 1e18;
+    const pFloor = startEth / SUPPLY;
+    const pTop = (startEth * 256) / SUPPLY; // outer FDV = 256x start
+    const sf = Math.sqrt(pFloor),
+      st = Math.sqrt(pTop);
+    const L = SUPPLY / (1 / sf - 1 / st);
+    const inv1 = 1 / sf - M / L;
+    if (!(inv1 > 0)) return undefined; // M exceeds capacity (shouldn't happen)
+    const wethMax = L * (1 / inv1 - sf); // ETH to buy exactly M tokens
+    if (!(wethMax > 0) || !Number.isFinite(wethMax)) return undefined;
+    // Gross up 1% fee, then a small haircut so the buy stays under the strict cap.
+    const capEth = wethMax * 1.01 * 0.98;
+    return BigInt(Math.floor(capEth * 1e18));
+  }, [curveConsts]);
+
+  const [name, setName] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [image, setImage] = useState("");
+  const [website, setWebsite] = useState("");
+  const [twitter, setTwitter] = useState("");
+  const [description, setDescription] = useState("");
+  const [devBuy, setDevBuy] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [socialOpen, setSocialOpen] = useState(false);
+  // Object URL of the just-picked file: instant preview while IPFS propagates.
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [uploadErr, setUploadErr] = useState("");
+  const [stocks, setStocks] = useState<RobinhoodStock[]>([]);
+  const [stockQuery, setStockQuery] = useState("");
+  const [pairedStock, setPairedStock] = useState<RobinhoodStock | null>(null);
+  const [stocksLoading, setStocksLoading] = useState(false);
+  const [customPairAddress, setCustomPairAddress] = useState("");
+  const [customPairLoading, setCustomPairLoading] = useState(false);
+  const [customPairError, setCustomPairError] = useState("");
+
+  // Holder rewards: share the creator's half of the fees with everyone holding.
+  const [rewardsOn, setRewardsOn] = useState(false);
+  // True when the server reports a newer pad than this bundle was built with.
+  const [staleClient, setStaleClient] = useState(false);
+  const [creatorCutPct, setCreatorCutPct] = useState(0);
+  const [launchMode, setLaunchMode] = useState<"v3" | "v4">("v4");
+  const [v4Fee, setV4Fee] = useState(10_000);
+  const [launchWarning, setLaunchWarning] = useState("");
+  const launchWarningTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holderCutPct = CREATOR_HALF_PCT - creatorCutPct;
+
+  function showLaunchWarning(message: string) {
+    if (launchWarningTimer.current) clearTimeout(launchWarningTimer.current);
+    setLaunchWarning("");
+    requestAnimationFrame(() => setLaunchWarning(message));
+    launchWarningTimer.current = setTimeout(() => setLaunchWarning(""), 4200);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (launchWarningTimer.current) clearTimeout(launchWarningTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStocksLoading(true);
+    loadStockCatalogue()
+      .then((catalogue) => {
+        if (!cancelled) setStocks(catalogue);
+      })
+      .catch(() => {
+        if (!cancelled) setStocks([]);
+      })
+      .finally(() => {
+        if (!cancelled) setStocksLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pairedStock || pairedStock.imageUrl) return;
+    const address = pairedStock.address;
+    let cancelled = false;
+    fetch(`/api/robinhood/token-logo?address=${encodeURIComponent(address)}`)
+      .then(async (response) => {
+        if (!response.ok) return "";
+        const data = (await response.json()) as { imageUrl?: string };
+        return data.imageUrl ?? "";
+      })
+      .then((imageUrl) => {
+        if (cancelled || !imageUrl) return;
+        setPairedStock((current) =>
+          current?.address.toLowerCase() === address.toLowerCase()
+            ? { ...current, imageUrl }
+            : current,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [pairedStock]);
+
+  const matchingStocks = useMemo(() => {
+    const query = stockQuery.trim().toLowerCase();
+    return stocks
+      .filter((stock) => !query || `${stock.symbol} ${stock.name}`.toLowerCase().includes(query))
+      .slice(0, 80);
+  }, [stockQuery, stocks]);
+
+  async function addCustomPair() {
+    setCustomPairError("");
+    if (!isAddress(customPairAddress.trim())) {
+      setCustomPairError("Enter a valid Robinhood Chain token address.");
+      return;
+    }
+    if (!pairReadClient) {
+      setCustomPairError("Robinhood Chain is not available. Check your wallet network and try again.");
+      return;
+    }
+
+    const address = getAddress(customPairAddress.trim());
+    setCustomPairLoading(true);
+    try {
+      const [nameResult, symbolResult, decimalsResult] = await Promise.all([
+        pairReadClient.readContract({ address, abi: erc20Abi, functionName: "name" }),
+        pairReadClient.readContract({ address, abi: erc20Abi, functionName: "symbol" }),
+        pairReadClient.readContract({ address, abi: erc20Abi, functionName: "decimals" }),
+      ]);
+
+      if (decimalsResult !== 18) {
+        setCustomPairError("This token cannot be paired: the launch contract requires 18 decimals.");
+        return;
+      }
+      if (!nameResult.trim() || !symbolResult.trim()) {
+        setCustomPairError("The token did not return a valid name and symbol.");
+        return;
+      }
+
+      setPairedStock({
+        address,
+        name: nameResult.trim(),
+        symbol: symbolResult.trim().toUpperCase(),
+        decimals: 18,
+        type: "stock",
+        imageUrl: "",
+      });
+      setCustomPairAddress("");
+      setStockQuery("");
+      setDevBuy("");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setCustomPairError(
+        /403|forbidden/i.test(detail)
+          ? "Robinhood RPC rejected the read (403). Try again with a wallet connected to Robinhood Chain."
+          : /429|rate.?limit/i.test(detail)
+            ? "Robinhood RPC is rate-limiting reads. Wait a moment and try again."
+            : "Could not read this token on Robinhood Chain. Check the address and network.",
+      );
+    } finally {
+      setCustomPairLoading(false);
+    }
+  }
+
+  async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadErr("");
+    setUploading(true);
+    // Preview the LOCAL file instantly. The pinned ipfs:// URI is what goes
+    // on-chain, but a fresh pin takes minutes to propagate to public gateways,
+    // so previewing via the URI showed a blank square right after upload.
+    setLocalPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = (await res.json()) as { uri?: string; error?: string };
+      if (!res.ok || !data.uri) throw new Error(data.error || "upload failed");
+      setImage(data.uri);
+    } catch (err) {
+      setUploadErr(err instanceof Error ? err.message : "upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleRemoveImage() {
+    setLocalPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setImage("");
+    setUploadErr("");
+  }
+
+  const devBuyWei = devBuy.trim() === "" ? 0n : tryParseEther(devBuy);
+  const isV4 = launchMode === "v4";
+  // A requested dev-buy is "too large" if it exceeds the cap — or if the cap
+  // hasn't loaded yet (fail closed so a race can't submit an over-cap buy).
+  const devBuyTooLarge =
+    devBuyWei !== undefined &&
+    devBuyWei > 0n &&
+    !isV4 &&
+    (maxDevBuyWei === undefined || devBuyWei > maxDevBuyWei);
+  const stockDevBuyUnsupported = !!pairedStock && devBuyWei !== undefined && devBuyWei > 0n;
+
+  // Anti-vampire shield: block names/tickers of every curated ancient (matches the
+  // on-chain seed) plus a few blue-chips, so copycats can't vamp the originals.
+  const blacklist = useMemo(() => {
+    const s = new Set<string>([
+      "doge", "pepe", "shib", "bonk", "wif", "trump", "eth", "weth", "usdc", "usdt", "usdg",
+    ]);
+    for (const t of ancientTokens) {
+      if (t.symbol) s.add(t.symbol.trim().toLowerCase());
+      if (t.name) s.add(t.name.trim().toLowerCase());
+    }
+    return s;
+  }, [ancientTokens]);
+  const nameBlocked = name.trim().length > 0 && blacklist.has(name.trim().toLowerCase());
+  const symbolBlocked = symbol.trim().length > 0 && blacklist.has(symbol.trim().toLowerCase());
+  const vampBlocked = nameBlocked || symbolBlocked;
+
+  const formValid =
+    name.trim().length > 0 &&
+    symbol.trim().length > 0 &&
+    image.trim().length > 0 &&
+    !vampBlocked &&
+    devBuyWei !== undefined &&
+    !devBuyTooLarge &&
+    !stockDevBuyUnsupported &&
+    (isV4 ? canV4Launch : canLaunch);
+
+  useEffect(() => {
+    if (!tx.confirmed || !tx.receipt) return;
+    let target = "/";
+    let launchedToken: string | undefined;
+    for (const log of tx.receipt.logs) {
+      for (const abi of [potatoCurvePadAbi, potatoV4PadAbi]) {
+        try {
+          const event = decodeEventLog({
+            abi,
+            eventName: "TokenCreated",
+            data: log.data,
+            topics: log.topics,
+          });
+          launchedToken = event.args.token as string;
+          target = `/token/${launchedToken}`;
+          break;
+        } catch {
+          // not a TokenCreated log (e.g. a dev-buy's Buy log) — keep scanning
+        }
+      }
+      if (launchedToken) break;
+    }
+    // Save the description off-chain (gasless, creator-signed). Best-effort: the
+    // token is fully launched regardless, so a declined signature or a failed
+    // write just means no description, never a lost token. The redirect waits a
+    // moment for the signature prompt but never blocks on it.
+    const trimmedDesc = description.trim();
+    if (launchedToken && trimmedDesc && userAddress) {
+      const tokenAddr = launchedToken;
+      void (async () => {
+        try {
+          const subject = tokenDescriptionHash({ token: tokenAddr, description: trimmedDesc });
+          const { nonce, issuedAt, signature } = await signAction(
+            userAddress,
+            "token-description",
+            subject,
+            (message) => signMessageAsync({ message }),
+          );
+          await fetch("/api/token-meta", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              address: userAddress,
+              token: tokenAddr,
+              description: trimmedDesc,
+              nonce,
+              issuedAt,
+              signature,
+            }),
+          });
+        } catch {
+          // creator declined the signature or the write failed — token is fine
+        }
+      })();
+    }
+    // Force the server feed to include this launch before invalidating any open
+    // Discover observers; a normal invalidation can briefly receive the old
+    // server snapshot while its background scan is still running.
+    void fetch("/api/tokens?refresh=1", { cache: "no-store" }).finally(() => {
+      void queryClient.invalidateQueries({ queryKey: ["launch-activity"] });
+    });
+    // Give the optional description-signature prompt room to appear before we
+    // navigate; the save continues even after the redirect either way.
+    const timer = setTimeout(() => router.push(target), trimmedDesc ? 2500 : 800);
+    return () => clearTimeout(timer);
+    // description/userAddress/signMessageAsync are read once at confirmation;
+    // intentionally not deps so a later keystroke can't re-fire the save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tx.confirmed, tx.receipt, router, queryClient]);
+
+  if (!canCreate) {
+    return <NotDeployed chainId={chainId} />;
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!formValid || devBuyWei === undefined) {
+      if (vampBlocked) {
+        showLaunchWarning("Choose another name or symbol before launching.");
+      } else if (!name.trim() || !symbol.trim()) {
+        showLaunchWarning("Add a name and symbol before launching.");
+      } else if (!image.trim()) {
+        showLaunchWarning("Add a token image before launching.");
+      } else if (devBuyWei === undefined || devBuyTooLarge) {
+        showLaunchWarning("Adjust the dev buy amount before launching.");
+      } else if (stockDevBuyUnsupported) {
+        showLaunchWarning("Stock-paired launches must start without an ETH dev buy.");
+      } else {
+        showLaunchWarning("Complete the required fields before launching.");
+      }
+      return;
+    }
+    if (staleClient) {
+      showLaunchWarning("Reload the page before launching this token.");
+      return;
+    }
+    // Stale-client guard. The pad address is baked into this bundle at build
+    // time; a tab left open across a repoint keeps writing to the RETIRED pad
+    // (that is exactly how DeepFryer/FROG/POND launched onto the old
+    // bounded-range pad hours after the curve pad shipped). Ask the server for
+    // its current pad right before submitting and refuse on mismatch. Fail
+    // open on network error: this guards a known hazard, it must not brick
+    // launches when the config endpoint itself hiccups.
+    try {
+      const res = await fetch("/api/config", { cache: "no-store" });
+      const cfg = (await res.json()) as { curvePad?: string | null };
+      if (cfg.curvePad && cfg.curvePad.toLowerCase() !== curvePad.toLowerCase()) {
+        setStaleClient(true);
+        return;
+      }
+    } catch {
+      // config check unavailable — proceed, the wallet still simulates the tx
+    }
+    // Random CREATE2 salt: makes the token address unpredictable so a griefer
+    // can't pre-initialize its Uniswap pool to brick the launch.
+    const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+    const meta = {
+      imageURI: image.trim(),
+      // Normalize creator-typed links BEFORE they're baked immutably on-chain:
+      // bare domains gain https://, handles become profile URLs, protocol typos
+      // are repaired, junk becomes "". A coin with no (usable) site of its own
+      // gets Potato Pad as its website, so explorers and aggregators reading
+      // this launch metadata link somewhere real instead of rendering a blank.
+      website: normalizeSocialUrl(website, "website") ?? SITE_URL,
+      twitter: normalizeSocialUrl(twitter, "twitter") ?? "",
+      telegram: "",
+    };
+    const trimmedName = name.trim();
+    const ticker = symbol.trim().toUpperCase();
+
+    if (isV4) {
+      let gas: bigint | undefined;
+      try {
+        const simulation = pairedStock
+          ? await pairReadClient?.simulateContract({
+              address: v4Pad,
+              abi: potatoV4PadAbi,
+              functionName: "createPairedToken",
+              args: [trimmedName, ticker, meta, salt, pairedStock.address, v4Fee],
+              account: userAddress,
+              value: 0n,
+            })
+          : await publicClient?.simulateContract({
+              address: v4Pad,
+              abi: potatoV4PadAbi,
+              functionName: "createToken",
+              args: [trimmedName, ticker, meta, salt, v4Fee],
+              account: userAddress,
+              value: devBuyWei,
+            });
+        if (simulation?.request.gas) gas = (simulation.request.gas * 12n) / 10n;
+      } catch (error) {
+        showLaunchWarning(`Launch simulation failed: ${launchSimulationError(error)}`);
+        return;
+      }
+      if (pairedStock) {
+        tx.writeContract({
+          address: v4Pad,
+          abi: potatoV4PadAbi,
+          functionName: "createPairedToken",
+          args: [trimmedName, ticker, meta, salt, pairedStock.address, v4Fee],
+          value: 0n,
+          ...(gas ? { gas } : {}),
+        });
+      } else {
+        tx.writeContract({
+          address: v4Pad,
+          abi: potatoV4PadAbi,
+          functionName: "createToken",
+          args: [trimmedName, ticker, meta, salt, v4Fee],
+          value: devBuyWei,
+          ...(gas ? { gas } : {}),
+        });
+      }
+      return;
+    }
+
+    const common = { address: curvePad, abi: potatoCurvePadAbi, value: devBuyWei } as const;
+
+    // Both entry points launch identically — same locked LP, same treasury cut.
+    // createRewardToken additionally splits the creator half with holders.
+    if (rewardsOn) {
+      let gas: bigint | undefined;
+      try {
+        const simulation = await publicClient?.simulateContract({
+          ...common,
+          functionName: "createRewardToken",
+          args: [trimmedName, ticker, meta, salt, creatorCutPct * 100],
+          account: userAddress,
+        });
+        if (simulation?.request.gas) gas = (simulation.request.gas * 12n) / 10n;
+      } catch (error) {
+        showLaunchWarning(`Launch simulation failed: ${launchSimulationError(error)}`);
+        return;
+      }
+      tx.writeContract({
+        ...common,
+        functionName: "createRewardToken",
+        args: [trimmedName, ticker, meta, salt, creatorCutPct * 100],
+        ...(gas ? { gas } : {}),
+      });
+      return;
+    }
+    let gas: bigint | undefined;
+    try {
+      const simulation = await publicClient?.simulateContract({
+        ...common,
+        functionName: "createToken",
+        args: [trimmedName, ticker, meta, salt],
+        account: userAddress,
+      });
+      if (simulation?.request.gas) gas = (simulation.request.gas * 12n) / 10n;
+    } catch (error) {
+      showLaunchWarning(`Launch simulation failed: ${launchSimulationError(error)}`);
+      return;
+    }
+    tx.writeContract({
+      ...common,
+      functionName: "createToken",
+      args: [trimmedName, ticker, meta, salt],
+      ...(gas ? { gas } : {}),
+    });
+  }
+
+  const previewSrc = localPreview ?? resolveImageUri(image);
+  const submitLabel = tx.isPending
+    ? "Confirm in wallet…"
+    : tx.isConfirming
+      ? "Creating"
+      : tx.confirmed
+        ? "Planted"
+        : vampBlocked
+          ? "Deployment restricted"
+          : "Launch token";
+
+  return (
+    <div className="mx-auto max-w-4xl">
+      {launchWarning && (
+        <div
+          key={launchWarning}
+          role="alert"
+          className="launch-warning fixed left-1/2 top-4 z-[100] w-[min(92vw,28rem)] -translate-x-1/2 rounded-2xl border border-amber-300/80 bg-[#fff8df]/95 px-4 py-3 text-center text-sm font-semibold text-[#765514] shadow-[0_18px_45px_-18px_rgba(120,85,10,0.55)] backdrop-blur-xl"
+        >
+          {launchWarning}
+        </div>
+      )}
+      <ConnectGate>
+        <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-5">
+          {/* LEFT: input matrix */}
+          <div className="space-y-6 rounded-3xl border border-white/80 bg-white/70 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_20px_55px_-36px_rgba(15,23,42,0.5)] backdrop-blur-xl sm:p-7 md:col-span-3">
+            <div className="border-b border-neutral-100 pb-5">
+              <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
+                Launch token
+              </h1>
+            </div>
+
+            <form id="launch-form" onSubmit={onSubmit} className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-[1.35fr_0.65fr]">
+                <div className="space-y-1.5">
+                  <label htmlFor="name" className={labelCls}>
+                    Name
+                  </label>
+                  <input
+                    id="name"
+                    className={`${inputCls} ${nameBlocked ? "border-rose-900/60 bg-rose-950/10 text-rose-300" : ""}`}
+                    placeholder="Token name"
+                    value={name}
+                    maxLength={48}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="symbol" className={labelCls}>
+                    Symbol
+                  </label>
+                  <input
+                    id="symbol"
+                    className={`${inputCls} font-mono uppercase ${symbolBlocked ? "border-rose-900/60 bg-rose-950/10 text-rose-300" : ""}`}
+                    placeholder="MASH"
+                    value={symbol}
+                    maxLength={12}
+                    onChange={(e) => setSymbol(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className={labelCls}>Image</label>
+                <div className="flex items-center gap-2">
+                  <label className="group relative flex h-20 w-20 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-neutral-200 bg-white/55 transition-colors hover:border-neutral-300 hover:bg-white">
+                    {previewSrc ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={previewSrc} alt="" className="h-full w-full object-cover" />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/40 group-hover:opacity-100">
+                          <ImagePlus className="h-5 w-5 text-white" />
+                        </div>
+                      </>
+                    ) : uploading ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
+                    ) : (
+                      <ImagePlus className="h-6 w-6 text-neutral-400 transition-transform duration-300 group-hover:scale-110" />
+                    )}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      disabled={uploading}
+                      onChange={handleUpload}
+                    />
+                  </label>
+                  {previewSrc && !uploading && (
+                    <button
+                      type="button"
+                      onClick={handleRemoveImage}
+                      aria-label="Remove image"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl text-neutral-400 transition-colors hover:text-rose-500"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+                {uploadErr && (
+                  <p className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs leading-relaxed text-rose-700">
+                    {uploadErr.includes("PINATA_JWT")
+                      ? "Image uploads are not configured yet. Add PINATA_JWT to the server environment and try again."
+                      : uploadErr}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="paired-stock" className={labelCls}>
+                  Pair asset <span className="font-normal text-neutral-500">(Optional)</span>
+                </label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                  <input
+                    id="paired-stock"
+                    className={`${inputCls} border-white/80 bg-white/65 pl-9 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_20px_-16px_rgba(15,23,42,0.45)] backdrop-blur-xl`}
+                    placeholder="Search by ticker or company"
+                    value={stockQuery}
+                    onChange={(event) => setStockQuery(event.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    aria-label="Custom Robinhood token address"
+                    className={`${inputCls} min-w-0 font-mono text-xs`}
+                    placeholder="Or paste a Robinhood token address"
+                    value={customPairAddress}
+                    onChange={(event) => {
+                      setCustomPairAddress(event.target.value);
+                      setCustomPairError("");
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void addCustomPair()}
+                    disabled={customPairLoading || !customPairAddress.trim()}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-semibold text-neutral-800 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {customPairLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Add token
+                  </button>
+                </div>
+                {customPairError && (
+                  <p role="alert" className="text-xs text-rose-600">{customPairError}</p>
+                )}
+                {pairedStock && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPairedStock(null);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-lime-200 bg-lime-50/70 p-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_8px_20px_-16px_rgba(132,204,22,0.45)] backdrop-blur-xl"
+                  >
+                    <StockLogo
+                      key={`${pairedStock.address}-${pairedStock.imageUrl}`}
+                      stock={pairedStock}
+                      custom
+                    />
+                    <span className="min-w-0 flex-1">
+                      <strong className="block truncate text-sm text-neutral-900">{pairedStock.symbol}</strong>
+                      <span className="block truncate text-xs text-neutral-500">{pairedStock.name}</span>
+                    </span>
+                    <span className="text-xs text-neutral-500">Change</span>
+                  </button>
+                )}
+                {!pairedStock && (
+                  <div className="max-h-64 overflow-y-auto rounded-2xl border border-white/80 bg-white/60 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_14px_30px_-22px_rgba(15,23,42,0.5)] backdrop-blur-xl">
+                    {stocksLoading ? (
+                      <div className="space-y-1 p-2">
+                        {Array.from({ length: 5 }).map((_, index) => (
+                          <div key={index} className="flex items-center gap-3 rounded-xl px-2 py-2">
+                            <div className="h-6 w-6 animate-pulse rounded-full bg-neutral-200" />
+                            <div className="flex-1 space-y-1.5">
+                              <div className="h-3 w-16 animate-pulse rounded bg-neutral-200" />
+                              <div className="h-2.5 w-32 animate-pulse rounded bg-neutral-100" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : matchingStocks.length === 0 ? (
+                      <p className="p-4 text-center text-xs text-neutral-500">No matching stocks found.</p>
+                    ) : (
+                      matchingStocks.map((stock) => (
+                        <button
+                          key={`${stock.symbol}-${stock.name}`}
+                          type="button"
+                          onClick={() => {
+                            setPairedStock(stock);
+                            setStockQuery("");
+                            setDevBuy("");
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-all hover:bg-white/85 hover:shadow-sm"
+                        >
+                          <StockLogo key={stock.address} stock={stock} />
+                          <span className="min-w-0">
+                            <strong className="block text-sm text-neutral-900">{stock.symbol}</strong>
+                            <span className="block truncate text-xs text-neutral-500">{stock.name}</span>
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {socialOpen ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label htmlFor="twitter" className={labelCls}>
+                        X
+                      </label>
+                      <input
+                        id="twitter"
+                        className={`${inputCls} text-[11px]`}
+                        placeholder="https://x.com/…"
+                        value={twitter}
+                        onChange={(e) => setTwitter(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="website" className={labelCls}>
+                        Website
+                      </label>
+                      <input
+                        id="website"
+                        className={`${inputCls} text-[11px]`}
+                        placeholder="https://…"
+                        value={website}
+                        onChange={(e) => setWebsite(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setSocialOpen(true)}
+                    className="flex w-fit items-center gap-1.5 rounded-full bg-amber-400/25 px-4 py-2.5 text-sm font-bold leading-none text-amber-600 transition-colors duration-300 hover:bg-amber-400/35"
+                  >
+                    Add Social Links
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="description" className={labelCls}>
+                    Description
+                  </label>
+                  <span className="text-[9px] text-neutral-600">
+                    {description.length}/{DESCRIPTION_MAX}
+                  </span>
+                </div>
+                <textarea
+                  id="description"
+                  rows={2}
+                  maxLength={DESCRIPTION_MAX}
+                  className={`${inputCls} resize-none`}
+                  placeholder="What's the coin about?"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="devbuy" className={labelCls}>
+                  <span className="inline-flex items-center gap-1">
+                    Dev buy
+                    <svg viewBox="0 0 256 417" className="h-3 w-3 shrink-0" aria-hidden="true">
+                      <path fill="currentColor" fillOpacity="0.6" d="M127.9 0 125 10.6v279.6l2.9 2.9 127.9-75.6z" />
+                      <path fill="currentColor" d="M127.9 0 0 217.5l127.9 75.6V0z" />
+                      <path fill="currentColor" fillOpacity="0.6" d="M127.9 317.4 126.4 319v94.9l1.5 4.4L256 241.3z" />
+                      <path fill="currentColor" d="M127.9 416.3v-98.9L0 241.3z" />
+                      <path fill="currentColor" fillOpacity="0.2" d="M127.9 293.1 255.8 217.5 127.9 154.6z" />
+                      <path fill="currentColor" fillOpacity="0.6" d="M0 217.5 127.9 293.1V154.6z" />
+                    </svg>
+                  </span>
+                </label>
+                <div className="relative">
+                  <input
+                    id="devbuy"
+                    className={`${inputCls} pr-12 font-mono tabular-nums`}
+                    placeholder={pairedStock ? "Unavailable for token pairs" : "0.00"}
+                    inputMode="decimal"
+                    value={devBuy}
+                    onChange={(e) => setDevBuy(e.target.value)}
+                    disabled={!!pairedStock}
+                  />
+                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-neutral-400">
+                    ETH
+                  </span>
+                </div>
+                {!isV4 && maxDevBuyWei !== undefined && (
+                  <p className="text-[10px] text-neutral-500">Max {formatEth(maxDevBuyWei)} ETH.</p>
+                )}
+                {devBuy.trim() !== "" && devBuyWei === undefined && (
+                  <p className="text-xs text-rose-400">Enter a valid amount.</p>
+                )}
+                {devBuyTooLarge && (
+                  <p className="text-xs text-rose-400">
+                    {maxDevBuyWei !== undefined
+                      ? `Max ${formatEth(maxDevBuyWei)} ETH.`
+                      : "Checking limit…"}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-3 border-t border-neutral-100 pt-5">
+                {isV4 && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="v4fee" className={labelCls}>
+                      <span className="inline-flex items-center gap-1.5">
+                        Trading fee
+                        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-amber-400/25 text-amber-600">
+                          <Percent className="h-2.5 w-2.5" />
+                        </span>
+                      </span>
+                    </label>
+                    <select
+                      id="v4fee"
+                      className={inputCls}
+                      value={v4Fee}
+                      onChange={(event) => setV4Fee(Number(event.target.value))}
+                    >
+                      <option value={10_000}>1%</option>
+                      <option value={20_000}>2%</option>
+                    </select>
+                    <p className="text-[10px] leading-relaxed text-neutral-500">
+                      Fixed after launch. Paired fees split 30% protocol / 70% creator in the paired asset.
+                    </p>
+                  </div>
+                )}
+                {!isV4 ? (
+                  <>
+                    <div>
+                      <label className={labelCls}>Fees</label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRewardsOn(false)}
+                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      rewardsOn
+                        ? "border-neutral-200 bg-white hover:border-neutral-300"
+                        : "border-amber-500/60 bg-amber-500/10"
+                    }`}
+                  >
+                    <span className="block text-xs font-bold text-neutral-900">Dev fees</span>
+                    <span className="mt-0.5 block text-[10px] leading-tight text-neutral-500">
+                      You receive fees.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRewardsOn(true)}
+                    className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      rewardsOn
+                        ? "border-lime-400 bg-lime-50"
+                        : "border-neutral-200 bg-white hover:border-neutral-300"
+                    }`}
+                  >
+                    <span className="block text-xs font-bold text-neutral-900">Holder rewards</span>
+                    <span className="mt-0.5 block text-[10px] leading-tight text-neutral-500">
+                      Holders earn fees.
+                    </span>
+                  </button>
+                    </div>
+
+                    {rewardsOn && (
+                      <div className="space-y-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3.5">
+                    <div className="flex items-baseline justify-between">
+                      <label htmlFor="creatorcut" className={labelCls}>
+                        Your cut
+                      </label>
+                      <span className="font-mono text-xs tabular-nums text-neutral-400">
+                        {creatorCutPct}% of all fees
+                      </span>
+                    </div>
+                    <input
+                      id="creatorcut"
+                      type="range"
+                      min={0}
+                      max={MAX_CREATOR_CUT_PCT}
+                      step={5}
+                      value={creatorCutPct}
+                      onChange={(e) => setCreatorCutPct(Number(e.target.value))}
+                      className="w-full accent-amber-500"
+                    />
+
+                    {/* Live split preview: the three ways a fee can go. */}
+                    <div className="flex h-1.5 overflow-hidden rounded-full bg-neutral-900">
+                      <div className="bg-neutral-700" style={{ width: "50%" }} />
+                      <div className="bg-amber-500" style={{ width: `${creatorCutPct}%` }} />
+                      <div className="bg-emerald-500" style={{ width: `${holderCutPct}%` }} />
+                    </div>
+                    <dl className="grid grid-cols-3 gap-2 text-center">
+                      {[
+                        ["Treasury", "50%", "bg-neutral-700"],
+                        ["You", `${creatorCutPct}%`, "bg-amber-500"],
+                        ["Holders", `${holderCutPct}%`, "bg-emerald-500"],
+                      ].map(([label, pct, dot]) => (
+                        <div key={label}>
+                          <dt className="flex items-center justify-center gap-1 text-[9px] uppercase tracking-wider text-neutral-500">
+                            <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+                            {label}
+                          </dt>
+                          <dd className="mt-0.5 font-mono text-xs tabular-nums text-neutral-900">
+                            {pct}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+
+                    <p className="text-[10px] leading-relaxed text-neutral-600">
+                      Fee settings are fixed after launch.
+                    </p>
+                      </div>
+                    )}
+                  </>
+                ) : null}
+              </div>
+            </form>
+          </div>
+
+          {/* RIGHT: shield + submit — stays vertically centered in the viewport while scrolling */}
+          <div className="relative md:col-span-2 md:sticky md:top-0 md:flex md:h-screen md:items-center">
+          <div className="flex w-full flex-col gap-4">
+            {vampBlocked ? (
+              <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_12px_28px_-22px_rgba(225,29,72,0.4)] backdrop-blur-xl">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-500/20 text-xs text-rose-400">
+                    !
+                  </span>
+                  <div className="min-w-0 space-y-1.5">
+                    <h4 className="text-xs font-semibold tracking-tight text-rose-200">
+                      Name unavailable
+                    </h4>
+                    <p className="text-[11px] leading-relaxed text-rose-300/80">
+                      {nameBlocked ? "Name" : "Symbol"}{" "}
+                      <span className="font-mono font-semibold text-rose-200">
+                        {(nameBlocked ? name : symbol).trim()}
+                      </span>{" "}
+                      is protected. Choose another.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_18px_40px_-24px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                <h4 className="text-base font-semibold tracking-tight text-neutral-100">
+                  Name check
+                </h4>
+                <p className="mt-2 text-sm leading-6 text-neutral-500">
+                  Names and symbols are checked before launch.
+                </p>
+              </div>
+            )}
+
+            {staleClient && (
+              <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                <h4 className="font-mono text-xs font-bold uppercase tracking-wider text-amber-400">
+                  Update required
+                </h4>
+                <p className="text-[11px] leading-relaxed text-neutral-400">
+                  Reload before launching. Your form entries will be lost.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="w-full rounded-lg bg-amber-500 py-2 text-[11px] font-bold uppercase tracking-widest text-neutral-950 hover:bg-amber-400"
+                >
+                  Reload page
+                </button>
+              </div>
+            )}
+            <div className="relative">
+              <div className="w-full">
+                <div className="launch-cta-border">
+                  <button
+                    type="submit"
+                    form="launch-form"
+                    disabled={tx.busy || tx.confirmed}
+                    className={`w-full py-5 text-sm font-semibold tracking-wide transition-all ${
+                      formValid && !tx.busy && !tx.confirmed && !staleClient
+                        ? "bg-[linear-gradient(180deg,#ffd84a_0%,#f2b90f_48%,#d88a05_100%)] text-[#3a2100] shadow-[inset_0_2px_0_rgba(255,255,218,0.9),inset_0_-3px_0_rgba(142,78,0,0.25),0_12px_24px_-12px_rgba(180,108,0,0.95)] hover:brightness-110"
+                        : "cursor-pointer bg-[linear-gradient(180deg,#e9c54b_0%,#c99a20_100%)] text-[#634000] shadow-[inset_0_1px_0_rgba(255,246,170,0.7)] hover:brightness-105"
+                    }`}
+                  >
+                    {submitLabel}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <TxStatus tx={tx} chainId={chainId} successLabel="Token launched" successTone="gold" />
+          </div>
+          </div>
+        </div>
+      </ConnectGate>
+    </div>
+  );
+}
