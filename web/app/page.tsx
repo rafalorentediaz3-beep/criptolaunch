@@ -1,6 +1,6 @@
 "use client";
 
-import { Heart, Hourglass, Search } from "lucide-react";
+import { ArrowDown, ArrowUpRight, Heart, Hourglass, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { Address, Hex } from "viem";
@@ -477,10 +477,63 @@ export default function DiscoverPage() {
 
   return (
     <div className="space-y-12">
+      <section className="matrix-hero relative isolate overflow-hidden rounded-[28px] border border-lime-400/20 px-5 py-12 text-center shadow-[0_30px_100px_-55px_rgba(34,197,94,0.5)] sm:px-10 sm:py-16">
+        <div aria-hidden className="matrix-rain absolute inset-0 -z-10" />
+        <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_85%,rgba(34,197,94,0.19),transparent_55%)]" />
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-lime-400/25 bg-black/55 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-lime-300 sm:text-xs">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-lime-400" /> Nassdaq launchpad <span className="text-white/30">/</span> Robinhood Chain
+          </div>
+          <h1 className="matrix-title text-4xl font-black uppercase leading-[0.98] tracking-tight text-white sm:text-6xl lg:text-7xl">
+            El próximo glitch
+            <span className="mt-2 block text-lime-300">empieza aquí.</span>
+          </h1>
+          <p className="mx-auto mt-6 max-w-2xl text-sm leading-6 text-neutral-300 sm:text-base sm:leading-7">
+            Lanza una idea, descubre nuevos tokens y sigue cada movimiento desde un solo lugar.
+            El código está a la vista. La sorpresa, todavía no.
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link href="/create" className="inline-flex items-center gap-2 rounded-full bg-lime-300 px-6 py-3 text-sm font-bold text-black shadow-[0_0_30px_-10px_rgba(163,230,53,0.8)] transition hover:bg-lime-200">
+              <Zap className="h-4 w-4" /> Lanza un token <ArrowUpRight className="h-4 w-4" />
+            </Link>
+            <a href="#coins" className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/45 px-6 py-3 text-sm font-semibold text-white backdrop-blur transition hover:border-lime-300/50 hover:bg-lime-300/10">
+              Explorar tokens <ArrowDown className="h-4 w-4" />
+            </a>
+          </div>
+          <div className="mx-auto mt-9 flex max-w-2xl items-start justify-center gap-3 rounded-2xl border border-lime-300/15 bg-black/45 px-4 py-3 text-left backdrop-blur-sm sm:items-center sm:px-5">
+            <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-lime-300 sm:mt-0" />
+            <p className="text-xs leading-5 text-neutral-300 sm:text-sm">
+              <span className="font-semibold text-white">Hay algo más en camino.</span> Se prevén recompensas para wallets elegibles, sujetas al cumplimiento de la normativa aplicable. <Link href="/rules" className="whitespace-nowrap text-lime-300 underline decoration-lime-300/40 underline-offset-4 hover:text-lime-200">Ver normativa</Link>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Opciones del launchpad" className="grid gap-3 sm:grid-cols-3">
+        <Link href="/create" className="matrix-option group">
+          <span className="matrix-option-icon"><Zap className="h-5 w-5" /></span>
+          <span className="block text-sm font-semibold text-white">Lanzar un token</span>
+          <span className="mt-1 block text-xs text-neutral-400">Convierte una idea en un lanzamiento.</span>
+          <ArrowUpRight className="absolute right-5 top-5 h-4 w-4 text-neutral-600 transition group-hover:text-lime-300" />
+        </Link>
+        <a href="#coins" className="matrix-option group">
+          <span className="matrix-option-icon"><Search className="h-5 w-5" /></span>
+          <span className="block text-sm font-semibold text-white">Explorar el feed</span>
+          <span className="mt-1 block text-xs text-neutral-400">Encuentra lanzamientos y actividad reciente.</span>
+          <ArrowUpRight className="absolute right-5 top-5 h-4 w-4 text-neutral-600 transition group-hover:text-lime-300" />
+        </a>
+        <Link href="/rules" className="matrix-option group">
+          <span className="matrix-option-icon"><ShieldCheck className="h-5 w-5" /></span>
+          <span className="block text-sm font-semibold text-white">Recompensas y normativa</span>
+          <span className="mt-1 block text-xs text-neutral-400">Consulta las bases y sus novedades.</span>
+          <ArrowUpRight className="absolute right-5 top-5 h-4 w-4 text-neutral-600 transition group-hover:text-lime-300" />
+        </Link>
+      </section>
+
       {/* Unified header + controls */}
-      <div className="space-y-5 sm:space-y-6">
+      <div id="coins" className="scroll-mt-28 space-y-5 sm:space-y-6">
         <p
-          className="hot-tagline text-center text-xl font-normal italic leading-none sm:text-2xl"
+          className="matrix-tagline text-center text-xl font-normal italic leading-none sm:text-2xl"
           style={{ fontFamily: 'Didot, "Bodoni MT", "Bodoni 72", Georgia, serif' }}
         >
           hot ideas born here.
@@ -495,7 +548,7 @@ export default function DiscoverPage() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search tokens"
             style={{ colorScheme: "light" }}
-            className="relative w-full appearance-none rounded-full border border-white/70 bg-white/60 py-3.5 pl-11 pr-4 text-sm font-medium text-neutral-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),inset_0_-18px_42px_rgba(255,255,255,0.18),0_16px_36px_-24px_rgba(15,23,42,0.65)] outline-none backdrop-blur-2xl backdrop-saturate-150 placeholder:font-semibold placeholder:text-neutral-600 focus:border-white focus:ring-4 focus:ring-white/20"
+            className="relative w-full appearance-none rounded-full border border-lime-300/15 bg-black/55 py-3.5 pl-11 pr-4 text-sm font-medium text-neutral-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_16px_36px_-24px_rgba(34,197,94,0.4)] outline-none backdrop-blur-2xl placeholder:font-semibold placeholder:text-neutral-500 focus:border-lime-300/40 focus:ring-4 focus:ring-lime-300/10"
           />
         </div>
 
@@ -574,7 +627,7 @@ export default function DiscoverPage() {
             </div>
           )}
           <Link href="/create" className="hidden shrink-0 items-center gap-2 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-neutral-100 transition-colors hover:bg-neutral-700 sm:inline-flex sm:justify-self-end">
-            <span className="text-lg leading-none">+</span> Create
+              <span className="text-lg leading-none">+</span> Launch token
           </Link>
         </div>
         {loading ? (

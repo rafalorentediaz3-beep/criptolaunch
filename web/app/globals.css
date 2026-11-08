@@ -5,13 +5,8 @@
 @layer base {
   body {
     @apply text-neutral-100 antialiased selection:bg-lime-900/60;
-    background-color: #0a0a0a;
-    background-image:
-      linear-gradient(rgba(10, 10, 10, 0.52), rgba(10, 10, 10, 0.6)),
-      url("/beach-background.png");
-    background-position: left top;
-    background-size: auto max(100vh, 49.1vw);
-    background-repeat: no-repeat;
+    background-color: #050806;
+    background-image: radial-gradient(ellipse at 50% -15%, rgba(34, 197, 94, 0.09), transparent 48%);
     background-attachment: fixed;
   }
 }
@@ -67,6 +62,28 @@
   .skeleton {
     @apply animate-pulse rounded-lg bg-neutral-800;
   }
+
+  .matrix-hero { background: linear-gradient(180deg, rgba(2, 10, 5, 0.7), rgba(2, 8, 4, 0.95)); }
+
+  .matrix-rain::before {
+    position: absolute;
+    inset: -25% -5%;
+    color: transparent;
+    background-image: repeating-linear-gradient(90deg, transparent 0 34px, rgba(34, 197, 94, 0.15) 35px, transparent 36px 70px);
+    content: "0 1 0 0 1 1 0 1 0 1 1 0 0 1 0 1 0 0 1 1 0 1 0 0 1 0 1 1 0 0 1 0 1 0 1 0 0 1 1 0 1 0 0 1 0 1 1 0";
+    font: 700 13px/24px ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 10px;
+    overflow-wrap: anywhere;
+    opacity: 0.34;
+    text-shadow: 0 0 8px rgba(34, 197, 94, 0.9);
+    transform: perspective(500px) rotateX(9deg);
+    animation: matrix-drift 24s linear infinite;
+  }
+
+  .matrix-title { text-shadow: 0 0 18px rgba(74, 222, 128, 0.32), 0 0 55px rgba(34, 197, 94, 0.15); }
+  .matrix-tagline { color: #a3e635; text-shadow: 0 0 18px rgba(132, 204, 22, 0.22); }
+  .matrix-option { @apply relative block rounded-2xl border border-white/10 bg-white/[0.035] p-5 transition duration-200 hover:-translate-y-0.5 hover:border-lime-400/30 hover:bg-lime-400/[0.055]; }
+  .matrix-option-icon { @apply mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-lime-400/20 bg-lime-400/10 text-lime-300; }
 
     .launch-cta-border {
       position: relative;
@@ -137,6 +154,15 @@
       animation: none;
     }
   }
+
+@keyframes matrix-drift {
+  from { background-position: 0 0; }
+  to { background-position: 0 180px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .matrix-rain::before { animation: none; }
+}
 
 /* Ticker-strip marquee: content is rendered twice, shift by exactly half. */
 @keyframes marquee {

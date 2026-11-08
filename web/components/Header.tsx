@@ -42,13 +42,13 @@ export function Header() {
           />
         </Link>
 
-        <nav className="hidden rounded-full bg-[linear-gradient(115deg,rgba(255,214,112,0.34),rgba(255,255,255,0.1)_42%,rgba(236,72,153,0.4))] p-px shadow-[0_12px_32px_-20px_rgba(236,72,153,0.55)] md:block">
-          <div className="flex items-center gap-1 rounded-full bg-[#171411]/90 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(236,72,153,0.06)] backdrop-blur-2xl backdrop-saturate-150">
+        <nav className="hidden rounded-full bg-[linear-gradient(115deg,rgba(163,230,53,0.28),rgba(255,255,255,0.1)_42%,rgba(34,197,94,0.34))] p-px shadow-[0_12px_32px_-20px_rgba(34,197,94,0.4)] md:block">
+          <div className="flex items-center gap-1 rounded-full bg-[#07100a]/95 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_-1px_0_rgba(34,197,94,0.06)] backdrop-blur-2xl backdrop-saturate-150">
             <Link
               href="/"
               className={`relative rounded-full px-5 py-2 text-sm font-semibold transition-all duration-200 ${
                 pathname === "/"
-                  ? "bg-[linear-gradient(135deg,rgba(255,255,255,0.12),rgba(236,72,153,0.13))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_5px_18px_-11px_rgba(236,72,153,0.95)] ring-1 ring-pink-400/15"
+                  ? "bg-[linear-gradient(135deg,rgba(255,255,255,0.12),rgba(34,197,94,0.13))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_5px_18px_-11px_rgba(34,197,94,0.7)] ring-1 ring-lime-400/15"
                   : "text-neutral-100/90 hover:bg-white/[0.055] hover:text-white"
               }`}
             >
@@ -58,7 +58,7 @@ export function Header() {
               href="/analytics"
               className={`relative rounded-full px-5 py-2 text-sm font-semibold transition-all duration-200 ${
                 pathname.startsWith("/analytics")
-                  ? "bg-[linear-gradient(135deg,rgba(255,255,255,0.12),rgba(236,72,153,0.13))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_5px_18px_-11px_rgba(236,72,153,0.95)] ring-1 ring-pink-400/15"
+                  ? "bg-[linear-gradient(135deg,rgba(255,255,255,0.12),rgba(34,197,94,0.13))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_5px_18px_-11px_rgba(34,197,94,0.7)] ring-1 ring-lime-400/15"
                   : "text-neutral-100/90 hover:bg-white/[0.055] hover:text-white"
               }`}
             >
@@ -66,10 +66,21 @@ export function Header() {
             </Link>
 
             <Link
+              href="/rules"
+              className={`relative rounded-full px-4 py-2 text-sm font-semibold transition-all duration-200 ${
+                pathname.startsWith("/rules")
+                  ? "bg-lime-400/10 text-white ring-1 ring-lime-400/15"
+                  : "text-neutral-100/90 hover:bg-white/[0.055] hover:text-white"
+              }`}
+            >
+              Normativa
+            </Link>
+
+            <Link
               href="/bot.html"
               className={`relative inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-all duration-200 ${
                 pathname.startsWith("/bot")
-                  ? "bg-[linear-gradient(135deg,rgba(255,255,255,0.12),rgba(236,72,153,0.13))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_5px_18px_-11px_rgba(236,72,153,0.95)] ring-1 ring-pink-400/15"
+                  ? "bg-[linear-gradient(135deg,rgba(255,255,255,0.12),rgba(34,197,94,0.13))] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_5px_18px_-11px_rgba(34,197,94,0.7)] ring-1 ring-lime-400/15"
                   : "text-neutral-100/90 hover:bg-white/[0.055] hover:text-white"
               }`}
             >
@@ -82,7 +93,7 @@ export function Header() {
               className="group flex cursor-not-allowed items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-[#c5b593]/85"
             >
               Marketplace
-              <span className="rounded-full border border-pink-300/30 bg-pink-500/15 px-2 py-0.5 text-[9px] font-bold uppercase leading-none text-pink-200/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_12px_-6px_rgba(236,72,153,0.9)]">
+              <span className="rounded-full border border-lime-300/25 bg-lime-500/10 px-2 py-0.5 text-[9px] font-bold uppercase leading-none text-lime-200/80">
                 Soon
               </span>
             </button>
@@ -92,7 +103,7 @@ export function Header() {
               className="group flex cursor-not-allowed items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-[#c5b593]/85"
             >
               Subscriptions
-              <span className="rounded-full border border-pink-300/30 bg-pink-500/15 px-2 py-0.5 text-[9px] font-bold uppercase leading-none text-pink-200/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_12px_-6px_rgba(236,72,153,0.9)]">
+              <span className="rounded-full border border-lime-300/25 bg-lime-500/10 px-2 py-0.5 text-[9px] font-bold uppercase leading-none text-lime-200/80">
                 Soon
               </span>
             </button>
@@ -102,7 +113,7 @@ export function Header() {
         <div className="ml-auto flex items-center gap-4">
           <Link
             href="/create"
-            className={`hidden items-center gap-2 rounded-full bg-[linear-gradient(180deg,#ffd84a_0%,#f2b90f_48%,#d88a05_100%)] px-5 py-2.5 text-[15px] font-semibold text-[#3a2100] shadow-[inset_0_1px_0_rgba(255,255,218,0.7),0_4px_14px_-8px_rgba(180,108,0,0.9)] transition-all hover:brightness-110 sm:flex ${
+            className={`hidden items-center gap-2 rounded-full bg-lime-300 px-5 py-2.5 text-[15px] font-semibold text-black shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_4px_14px_-8px_rgba(34,197,94,0.9)] transition-all hover:bg-lime-200 sm:flex ${
               pathname === "/create" ? "ring-2 ring-amber-300/50" : ""
             }`}
           >
