@@ -3,7 +3,7 @@
 // Kept separate from lib/config.ts: RainbowKit's getDefaultConfig is
 // client-only, and config.ts is also imported by server components.
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
-import { metaMaskWallet, phantomWallet, zerionWallet } from "@rainbow-me/rainbowkit/wallets";
+import { injectedWallet, metaMaskWallet, phantomWallet, zerionWallet } from "@rainbow-me/rainbowkit/wallets";
 import { http } from "viem";
 import { robinhoodChain } from "./config";
 import { robinhoodServerTransport } from "./serverRpc";
@@ -29,7 +29,9 @@ export const wagmiConfig = getDefaultConfig({
   wallets: [
     {
       groupName: "Wallets",
-      wallets: [phantomWallet, zerionWallet, metaMaskWallet],
+      // Keep a generic injected-wallet fallback so browser wallets that are not
+      // on RainbowKit's named-wallet list (Rabby, Brave, Coinbase, etc.) can connect.
+      wallets: [phantomWallet, zerionWallet, metaMaskWallet, injectedWallet],
     },
   ],
   chains,

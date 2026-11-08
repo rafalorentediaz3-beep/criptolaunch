@@ -626,7 +626,7 @@ export default function DiscoverPage() {
               ))}
             </div>
           )}
-          <Link href="/create" className="hidden shrink-0 items-center gap-2 rounded-full bg-neutral-800 px-4 py-2.5 text-sm font-medium text-neutral-100 transition-colors hover:bg-neutral-700 sm:inline-flex sm:justify-self-end">
+          <Link href="/create" className="inline-flex shrink-0 items-center gap-2 rounded-full bg-neutral-800 px-3 py-2.5 text-xs font-medium text-neutral-100 transition-colors hover:bg-neutral-700 sm:justify-self-end sm:px-4 sm:text-sm">
               <span className="text-lg leading-none">+</span> Launch token
           </Link>
         </div>

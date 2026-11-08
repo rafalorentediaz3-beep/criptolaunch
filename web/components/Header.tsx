@@ -113,11 +113,11 @@ export function Header() {
         <div className="ml-auto flex items-center gap-4">
           <Link
             href="/create"
-            className={`hidden items-center gap-2 rounded-full bg-lime-300 px-5 py-2.5 text-[15px] font-semibold text-black shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_4px_14px_-8px_rgba(34,197,94,0.9)] transition-all hover:bg-lime-200 sm:flex ${
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full bg-lime-300 px-2.5 py-2 text-xs font-semibold text-black shadow-[inset_0_1px_0_rgba(255,255,255,0.35),0_4px_14px_-8px_rgba(34,197,94,0.9)] transition-all hover:bg-lime-200 sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
               pathname === "/create" ? "ring-2 ring-amber-300/50" : ""
             }`}
           >
-            <span className="text-lg leading-none">+</span> Create
+            <span className="text-lg leading-none">+</span> <span>Create</span>
           </Link>
           <ConnectButton.Custom>
             {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
