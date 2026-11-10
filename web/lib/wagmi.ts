@@ -3,7 +3,8 @@
 // Kept separate from lib/config.ts: RainbowKit's getDefaultConfig is
 // client-only, and config.ts is also imported by server components.
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
-import { injectedWallet, metaMaskWallet, phantomWallet, zerionWallet } from "@rainbow-me/rainbowkit/wallets";
+import { createConnector, injected } from "wagmi";
+import { injectedWallet, phantomWallet, zerionWallet } from "@rainbow-me/rainbowkit/wallets";
 import { http } from "viem";
 import { robinhoodChain } from "./config";
 import { robinhoodServerTransport } from "./serverRpc";
@@ -23,6 +24,26 @@ const robinhoodTransport =
 
 const chains = [robinhoodChain] as const;
 
+// Use MetaMask's browser extension directly. RainbowKit's bundled MetaMask SDK
+// also pulls in optional React Native storage; this app only needs EIP-1193.
+const metaMaskExtensionWallet = () => ({
+  id: "metaMaskExtension",
+  name: "MetaMask",
+  iconUrl:
+    "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><rect width='40' height='40' rx='20' fill='%23f6851b'/><path fill='white' d='M10 10l8 6-2 4-7-5zm20 0l-8 6 2 4 7-5zM9 25l7-3 3 2-3 5zm22 0l-7-3-3 2 3 5z'/></svg>",
+  iconBackground: "#f6851b",
+  installed:
+    typeof window !== "undefined" &&
+    Boolean((window as Window & { ethereum?: { isMetaMask?: boolean } }).ethereum?.isMetaMask),
+  createConnector: (walletDetails: Parameters<ReturnType<typeof injectedWallet>["createConnector"]>[0]) =>
+    createConnector((config) => ({
+      ...injected({ target: "metaMask" })(config),
+      id: "metaMaskExtension",
+      name: "MetaMask",
+      ...walletDetails,
+    })),
+});
+
 export const wagmiConfig = getDefaultConfig({
   appName: "PotatoPad",
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "potatopad-demo",
@@ -31,7 +52,7 @@ export const wagmiConfig = getDefaultConfig({
       groupName: "Wallets",
       // Keep a generic injected-wallet fallback so browser wallets that are not
       // on RainbowKit's named-wallet list (Rabby, Brave, Coinbase, etc.) can connect.
-      wallets: [phantomWallet, zerionWallet, metaMaskWallet, injectedWallet],
+      wallets: [metaMaskExtensionWallet, phantomWallet, zerionWallet, injectedWallet],
     },
   ],
   chains,

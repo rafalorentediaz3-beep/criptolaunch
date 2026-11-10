@@ -3,6 +3,7 @@
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import type { ReactNode } from "react";
 import { useAccount } from "wagmi";
+import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 
 /**
  * Renders children only when a wallet is connected on a supported chain.
@@ -15,7 +16,10 @@ export function ConnectGate({ children }: { children: ReactNode }) {
     return (
       <div className="flex flex-col items-center gap-3 py-4 text-center">
         <p className="text-sm text-neutral-400">Connect a wallet to continue.</p>
-        <ConnectButton />
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <MetaMaskConnectButton label="Connect MetaMask" className="btn-primary disabled:opacity-60" />
+          <ConnectButton />
+        </div>
       </div>
     );
   }

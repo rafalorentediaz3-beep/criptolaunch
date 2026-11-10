@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowDown, ArrowUpRight, Heart, Hourglass, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { ArrowDown, ArrowUpRight, Coins, Crown, Heart, Hourglass, KeyRound, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import Link from "next/link";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { MetaMaskConnectButton } from "@/components/MetaMaskConnectButton";
 import { useEffect, useMemo, useState } from "react";
 import type { Address, Hex } from "viem";
 import { useAccount, useReadContracts } from "wagmi";
@@ -29,6 +30,7 @@ import { NotDeployed } from "@/components/NotDeployed";
 import { useSearch } from "@/components/SearchContext";
 import { TokenCard, type TokenRow } from "@/components/TokenCard";
 import { TokenCarousel } from "@/components/TokenCarousel";
+import { recordWalletEarning, useWalletKeys } from "@/lib/walletKeys";
 
 /** Discover feed is Robinhood-pinned; price with RH WETH, not wallet-chain WETH. */
 const RH_WETH = WETH_ADDRESSES[ANALYTICS_CHAIN_ID] ?? ZERO_ADDRESS;
@@ -47,14 +49,44 @@ const SORTS: { id: SortId; label: string }[] = [
 ];
 
 const GLITCH_PRIZES = [
-  "NFT: Loot misterioso",
-  "NFT: Boost de visibilidad",
-  "NFT: Badge glitch",
-  "NFT: Idea destacada",
-  "NFT: Drop sorpresa",
-  "NFT: Glitch dorado",
-  "NFT: Token secreto",
-  "NFT: Un giro extra",
+  { id: "loot", title: "Loot misterioso", detail: "Una caja sellada del glitch", icon: "🧰", tint: "from-violet-300 to-fuchsia-500", glow: "rgba(192,132,252,0.2)" },
+  { id: "boost", title: "Boost de visibilidad", detail: "Impulso para tu lanzamiento", icon: "⚡", tint: "from-lime-200 to-emerald-500", glow: "rgba(163,230,53,0.2)" },
+  { id: "badge", title: "Badge glitch", detail: "Una insignia de colección", icon: "🏅", tint: "from-amber-200 to-orange-500", glow: "rgba(251,191,36,0.2)" },
+  { id: "idea", title: "Idea destacada", detail: "Tu idea brilla en el feed", icon: "💡", tint: "from-cyan-200 to-blue-500", glow: "rgba(34,211,238,0.2)" },
+  { id: "drop", title: "Drop sorpresa", detail: "Un hallazgo inesperado", icon: "🎁", tint: "from-pink-200 to-rose-500", glow: "rgba(244,114,182,0.2)" },
+  { id: "gold", title: "Glitch dorado", detail: "Una edición poco común", icon: "✨", tint: "from-yellow-200 to-amber-500", glow: "rgba(250,204,21,0.2)" },
+  { id: "secret", title: "Token secreto", detail: "Un secreto entre bloques", icon: "🔮", tint: "from-indigo-200 to-violet-500", glow: "rgba(129,140,248,0.2)" },
+  { id: "extra", title: "Un giro extra", detail: "Otra oportunidad en la ruleta", icon: "🌀", tint: "from-teal-200 to-cyan-500", glow: "rgba(45,212,191,0.2)" },
+];
+
+const MMG_TOP_PRIZES = [
+  {
+    rank: "01",
+    eyebrow: "EL GRAN PREMIO",
+    figure: "50%",
+    title: "del suministro de MMG",
+    description: "Distribución gratuita prometida para traders activos de Solana.",
+    Icon: Crown,
+    theme: "gold",
+  },
+  {
+    rank: "02",
+    eyebrow: "INGRESOS QUE LLEGAN",
+    figure: "SOL",
+    title: "recompensas automáticas",
+    description: "Se afirmaba que los holders de MMG recibirían SOL directamente en su wallet.",
+    Icon: Coins,
+    theme: "violet",
+  },
+  {
+    rank: "03",
+    eyebrow: "REPARTO A HOLDERS",
+    figure: "4%",
+    title: "de las comisiones de liquidez",
+    description: "El anuncio planteaba devolver esa parte de las comisiones a los holders.",
+    Icon: Zap,
+    theme: "cyan",
+  },
 ];
 
 type Slot0 = readonly [bigint, number, number, number, number, number, boolean];
@@ -92,6 +124,7 @@ export default function DiscoverPage() {
   // so pricing uses RH_WETH rather than the connected wallet's chain WETH.
   const { chainId, curvePad, isDeployed } = usePad();
   const { address: playerWallet } = useAccount();
+  const keyInventory = useWalletKeys(playerWallet);
   const { query, setQuery } = useSearch();
   const [tab, setTab] = useState<TabId>("growing");
   const [sort, setSort] = useState<SortId>("mcap");
@@ -99,6 +132,7 @@ export default function DiscoverPage() {
   const [wheelSpinning, setWheelSpinning] = useState(false);
   const [wheelPrize, setWheelPrize] = useState<string | null>(null);
   const [wheelPrizeWallet, setWheelPrizeWallet] = useState<Address | null>(null);
+  const [openedBox, setOpenedBox] = useState<string | null>(null);
   const [cachedMarketCaps, setCachedMarketCaps] = useState<Record<string, CachedMarketCap>>({});
   const isAncientTab = tab === "ancient";
   const { usd: ethUsd } = useEthUsdPrice();
@@ -108,8 +142,29 @@ export default function DiscoverPage() {
   }, []);
 
   // PotatoPad launches — span ALL pads (curve + direct/legacy). Robinhood-pinned.
-  const { creations, unavailable: launchUnavailable, isLoading: launchLoading } =
-    useLaunchActivity();
+  const {
+    creations,
+    state: launchState,
+    unavailable: launchUnavailable,
+    isLoading: launchLoading,
+  } = useLaunchActivity();
+  const mmgToken = useMemo(
+    () => creations
+      .filter((creation) => creation.symbol.trim().toUpperCase() === "MMG")
+      .sort((a, b) => b.timestamp - a.timestamp)[0],
+    [creations],
+  );
+  const mmgStatus = mmgToken
+    ? launchState === "stale"
+      ? "Last on-chain data · refreshing"
+      : "Live on Robinhood Chain"
+    : launchLoading
+      ? "Checking the live launch feed"
+      : launchUnavailable
+        ? "Feed unavailable · retrying"
+        : launchState === "stale"
+          ? "Last feed snapshot · checking again"
+        : "Pending launch · MMG not detected on-chain yet";
   // Pre-existing Robinhood "ancient" runners (Noxa etc.), served by /api/ancient.
   const {
     tokens: ancientTokens,
@@ -488,10 +543,25 @@ export default function DiscoverPage() {
     setWheelSpinning(true);
     setWheelRotation((current) => current + 360 * 6 + landingOffset);
     window.setTimeout(() => {
-      setWheelPrize(GLITCH_PRIZES[prizeIndex]);
+      setWheelPrize(GLITCH_PRIZES[prizeIndex].title);
       setWheelPrizeWallet(playerWallet);
       setWheelSpinning(false);
     }, 5200);
+  }
+
+  function openMysteryBox(prize: (typeof GLITCH_PRIZES)[number]) {
+    if (!playerWallet) return;
+    if (!keyInventory.claimed) {
+      keyInventory.claim();
+      setOpenedBox("Has recibido tus llaves. Vuelve a pulsar para abrir esta caja.");
+      return;
+    }
+    if (!keyInventory.spend()) {
+      setOpenedBox("No te quedan llaves. Cada wallet puede reclamar un lote de 1 a 4 llaves.");
+      return;
+    }
+    recordWalletEarning(playerWallet, { boxId: prize.id, title: prize.title, detail: prize.detail });
+    setOpenedBox(`Caja abierta para ${playerWallet.slice(0, 6)}…${playerWallet.slice(-4)}: ${prize.title}. Guardada en Earnings.`);
   }
 
   if (!isDeployed) {
@@ -521,13 +591,21 @@ export default function DiscoverPage() {
             <span className="mt-2 block text-lime-300">empieza aquí.</span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-sm leading-6 text-neutral-300 sm:text-base sm:leading-7">
-            Lanza una idea, descubre nuevos tokens y sigue cada movimiento desde un solo lugar.
+            Sigue MMG y el estado real de su lanzamiento. Cuando aparezca en la cadena, esta página actualizará sus datos automáticamente.
             El código está a la vista. La sorpresa, todavía no.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
-            <Link href="/create" className="inline-flex items-center gap-2 rounded-full bg-lime-300 px-6 py-3 text-sm font-bold text-black shadow-[0_0_30px_-10px_rgba(163,230,53,0.8)] transition hover:bg-lime-200">
-              <Zap className="h-4 w-4" /> Lanza un token <ArrowUpRight className="h-4 w-4" />
-            </Link>
+            <div id="mmg-status" className="flex min-w-[min(100%,370px)] items-center gap-3 rounded-2xl border border-lime-200/30 bg-black/55 px-4 py-3 text-left shadow-[0_0_35px_-20px_rgba(163,230,53,0.8)] backdrop-blur sm:px-5">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-lime-200/30 bg-lime-300/10 font-mono text-sm font-black tracking-widest text-lime-100">MMG</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-neutral-500">Token de esta página</span>
+                <span className="mt-1 flex items-center gap-2 text-xs font-semibold text-white sm:text-sm">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${mmgToken && launchState === "fresh" ? "animate-pulse bg-lime-300" : launchUnavailable ? "bg-amber-300" : "bg-neutral-500"}`} />
+                  <span className="truncate">{mmgStatus}</span>
+                </span>
+              </span>
+              {mmgToken && <Link href={`/token/${mmgToken.token}`} className="shrink-0 rounded-full border border-lime-200/25 px-3 py-1.5 text-xs font-bold text-lime-100 transition hover:bg-lime-200/10">Ver MMG</Link>}
+            </div>
             <a href="#coins" className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/45 px-6 py-3 text-sm font-semibold text-white backdrop-blur transition hover:border-lime-300/50 hover:bg-lime-300/10">
               Explorar tokens <ArrowDown className="h-4 w-4" />
             </a>
@@ -542,12 +620,12 @@ export default function DiscoverPage() {
       </section>
 
       <section aria-label="Opciones del launchpad" className="grid gap-3 sm:grid-cols-3">
-        <Link href="/create" className="matrix-option group">
-          <span className="matrix-option-icon"><Zap className="h-5 w-5" /></span>
-          <span className="block text-sm font-semibold text-white">Lanzar un token</span>
-          <span className="mt-1 block text-xs text-neutral-400">Convierte una idea en un lanzamiento.</span>
+        <a href="#mmg-status" className="matrix-option group">
+          <span className="matrix-option-icon font-mono text-sm font-black">MMG</span>
+          <span className="block text-sm font-semibold text-white">Estado del token</span>
+          <span className="mt-1 block text-xs text-neutral-400">{mmgStatus}</span>
           <ArrowUpRight className="absolute right-5 top-5 h-4 w-4 text-neutral-600 transition group-hover:text-lime-300" />
-        </Link>
+        </a>
         <a href="#coins" className="matrix-option group">
           <span className="matrix-option-icon"><Search className="h-5 w-5" /></span>
           <span className="block text-sm font-semibold text-white">Explorar el feed</span>
@@ -573,32 +651,80 @@ export default function DiscoverPage() {
 
         <section aria-labelledby="glitch-wheel-title" className="relative overflow-hidden rounded-[28px] border border-lime-300/20 bg-[#050906]/90 px-5 py-8 shadow-[0_24px_80px_-42px_rgba(34,197,94,0.38)] sm:px-8 sm:py-10">
           <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_40%,rgba(163,230,53,0.12),transparent_58%)]" />
-          <div className="relative mx-auto grid max-w-5xl items-center gap-8 md:grid-cols-[1fr_1fr] md:gap-12">
-            <div className="text-center md:text-left">
+          <div className="relative mx-auto max-w-6xl">
+            <div className="text-center">
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-lime-300/20 bg-lime-300/5 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-lime-300">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-lime-300" /> anomalía detectada
               </div>
-              <h2 id="glitch-wheel-title" className="text-2xl font-black uppercase tracking-tight text-white sm:text-3xl">La ruleta del glitch</h2>
-              <p className="mt-3 max-w-md text-sm leading-6 text-neutral-400">Una señal extraña ha dejado NFT de premio ocultos en el sistema. Gira para descubrir qué aparece.</p>
-              {playerWallet ? (
-                <button type="button" onClick={spinGlitchWheel} disabled={wheelSpinning} className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-lime-300 px-6 py-3 text-sm font-bold text-black shadow-[0_0_28px_-10px_rgba(163,230,53,0.8)] transition hover:bg-lime-200 disabled:cursor-wait disabled:opacity-60">
-                  <Sparkles className={`h-4 w-4 ${wheelSpinning ? "animate-spin" : ""}`} /> {wheelSpinning ? "Descifrando..." : "Girar la ruleta"}
-                </button>
-              ) : (
-                <ConnectButton.Custom>{({ openConnectModal }) => <button type="button" onClick={openConnectModal} className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-lime-300 px-6 py-3 text-sm font-bold text-black shadow-[0_0_28px_-10px_rgba(163,230,53,0.8)] transition hover:bg-lime-200"><Zap className="h-4 w-4" /> Conectar wallet Robinhood</button>}</ConnectButton.Custom>
-              )}
-              <p aria-live="polite" className="mt-4 min-h-6 text-sm font-semibold text-lime-200">{wheelPrize ? `Vista previa para ${wheelPrizeWallet ? `${wheelPrizeWallet.slice(0, 6)}…${wheelPrizeWallet.slice(-4)}` : "tu wallet"}: ${wheelPrize}` : wheelSpinning ? "La señal está cambiando..." : playerWallet ? `Jugador: ${playerWallet.slice(0, 6)}…${playerWallet.slice(-4)} · ¿Qué NFT esconde el glitch?` : "Conecta tu wallet de Robinhood para identificarte como jugador."}</p>
-              <p className="mt-3 text-[11px] leading-5 text-neutral-600">Vista previa del sorteo: la asignación real de NFT y su canje por SOL se activarán al definir las bases, cantidades y entrega de premios.</p>
+              <h2 id="glitch-wheel-title" className="text-2xl font-black uppercase tracking-tight text-white sm:text-3xl">Premios ocultos del glitch</h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-neutral-400">Cajas misteriosas con NFT únicos. Echa un vistazo a lo que puede aparecer y gira la ruleta para descubrir tu caja.</p>
             </div>
 
-            <div className="mx-auto w-full max-w-[310px]">
-              <div className="relative mx-auto aspect-square w-full">
-                <div aria-hidden className="absolute -inset-3 rounded-full border border-lime-300/15 shadow-[0_0_50px_-18px_rgba(163,230,53,0.6)]" />
-                <div aria-hidden className="absolute left-1/2 top-[-8px] z-20 -translate-x-1/2 border-x-[12px] border-t-[22px] border-x-transparent border-t-lime-200 drop-shadow-[0_0_8px_rgba(190,242,100,0.8)]" />
-                <div aria-label="Ruleta con ocho premios" role="img" className="absolute inset-0 rounded-full border-[5px] border-[#b8f47a] shadow-[inset_0_0_0_5px_rgba(0,0,0,0.65)] transition-transform duration-[5200ms] [transition-timing-function:cubic-bezier(0.12,0.72,0.08,1)]" style={{ transform: `rotate(${wheelRotation}deg)`, background: "conic-gradient(from -22.5deg, #b8f47a 0deg 45deg, #17351f 45deg 90deg, #d2ff91 90deg 135deg, #102719 135deg 180deg, #a6df68 180deg 225deg, #183a24 225deg 270deg, #d2ff91 270deg 315deg, #102719 315deg 360deg)" }}>
-                  {GLITCH_PRIZES.map((prize, index) => <span key={prize} className="absolute left-1/2 top-1/2 w-[82px] -translate-x-1/2 -translate-y-1/2 text-center font-mono text-[9px] font-bold leading-tight text-black/80" style={{ transform: `translate(-50%, -50%) rotate(${index * 45}deg) translateY(-91px) rotate(-${index * 45}deg)` }}>{prize}</span>)}
+            <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+              {GLITCH_PRIZES.map((prize, index) => (
+                <article key={prize.id} className="group relative isolate overflow-hidden rounded-2xl border border-white/10 bg-neutral-950/85 p-3 transition duration-300 hover:-translate-y-1 hover:border-white/25 hover:shadow-[0_14px_36px_-20px_rgba(163,230,53,0.45)] sm:p-4">
+                  <div aria-hidden className="absolute inset-0 -z-10 opacity-70 transition group-hover:opacity-100" style={{ background: `radial-gradient(circle at 20% 0%, ${prize.glow}, transparent 65%)` }} />
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="rounded-full border border-white/10 bg-black/40 px-2 py-1 font-mono text-[9px] font-bold tracking-[0.16em] text-neutral-400">CAJA 0{index + 1}</span>
+                    <span aria-hidden className="text-xs text-lime-200/70">✦</span>
+                  </div>
+                  <div className={`mx-auto my-4 flex aspect-square w-full max-w-[92px] items-center justify-center rounded-[22px] border border-white/25 bg-gradient-to-br ${prize.tint} text-4xl shadow-[inset_0_1px_0_rgba(255,255,255,0.65),0_12px_28px_-14px_rgba(0,0,0,0.9)] transition duration-300 group-hover:scale-105 sm:my-5 sm:text-5xl`}>
+                    <span aria-hidden>{prize.icon}</span>
+                  </div>
+                  <h3 className="text-center text-xs font-bold leading-5 text-white sm:text-sm">{prize.title}</h3>
+                  <p className="mt-1 text-center text-[10px] leading-4 text-neutral-500 sm:text-[11px]">{prize.detail}</p>
+                  <div aria-hidden className="mt-3 flex justify-center gap-1">
+                    <span className="h-1 w-5 rounded-full bg-white/25" /><span className="h-1 w-1 rounded-full bg-white/15" /><span className="h-1 w-1 rounded-full bg-white/15" />
+                  </div>
+                  {playerWallet ? (
+                    <button
+                      type="button"
+                      onClick={() => openMysteryBox(prize)}
+                      disabled={keyInventory.claimed && keyInventory.keys < 1}
+                      className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-200/25 bg-amber-200/10 px-2 py-2 text-[10px] font-bold text-amber-100 transition hover:bg-amber-200/20 disabled:cursor-not-allowed disabled:opacity-40 sm:text-xs"
+                    >
+                      <KeyRound className="h-3.5 w-3.5" />
+                      {!keyInventory.claimed ? "Recibir llaves" : keyInventory.keys > 0 ? "Abrir · 1 llave" : "Sin llaves"}
+                    </button>
+                  ) : (
+                    <ConnectButton.Custom>
+                      {({ openConnectModal, mounted }) => (
+                        <button type="button" onClick={openConnectModal} disabled={!mounted} className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-lime-200/20 bg-lime-200/5 px-2 py-2 text-[10px] font-bold text-lime-100 transition hover:bg-lime-200/10 disabled:opacity-40 sm:text-xs">
+                          <KeyRound className="h-3.5 w-3.5" /> Conecta wallet
+                        </button>
+                      )}
+                    </ConnectButton.Custom>
+                  )}
+                </article>
+              ))}
+            </div>
+
+            <p aria-live="polite" className="mt-4 min-h-5 text-center text-xs font-semibold text-amber-100">{openedBox ?? (playerWallet ? `Inventario de ${playerWallet.slice(0, 6)}…${playerWallet.slice(-4)}: ${keyInventory.keys} llaves` : "Conecta una wallet y reclama de 1 a 4 llaves para abrir una caja.")}</p>
+
+            <div className="mt-9 grid items-center gap-8 border-t border-white/10 pt-8 md:grid-cols-[1fr_auto] md:gap-12">
+              <div className="text-center md:text-left">
+                <h3 className="text-xl font-black uppercase tracking-tight text-white sm:text-2xl">La ruleta del glitch</h3>
+                <p className="mt-2 max-w-lg text-sm leading-6 text-neutral-400">Cada segmento es una de las cajas de arriba. ¿Cuál revelará la señal?</p>
+                {playerWallet ? (
+                  <button type="button" onClick={spinGlitchWheel} disabled={wheelSpinning} className="mt-5 inline-flex items-center justify-center gap-2 rounded-full bg-lime-300 px-6 py-3 text-sm font-bold text-black shadow-[0_0_28px_-10px_rgba(163,230,53,0.8)] transition hover:bg-lime-200 disabled:cursor-wait disabled:opacity-60">
+                    <Sparkles className={`h-4 w-4 ${wheelSpinning ? "animate-spin" : ""}`} /> {wheelSpinning ? "Descifrando..." : "Girar la ruleta"}
+                  </button>
+                ) : (
+                  <MetaMaskConnectButton label="Conectar MetaMask" className="mt-5 inline-flex items-center justify-center gap-2 rounded-full bg-lime-300 px-6 py-3 text-sm font-bold text-black shadow-[0_0_28px_-10px_rgba(163,230,53,0.8)] transition hover:bg-lime-200 disabled:cursor-wait disabled:opacity-60" />
+                )}
+                <p aria-live="polite" className="mt-4 min-h-6 text-sm font-semibold text-lime-200">{wheelPrize ? `Vista previa para ${wheelPrizeWallet ? `${wheelPrizeWallet.slice(0, 6)}…${wheelPrizeWallet.slice(-4)}` : "tu wallet"}: ${wheelPrize}` : wheelSpinning ? "La señal está cambiando..." : playerWallet ? `Jugador: ${playerWallet.slice(0, 6)}…${playerWallet.slice(-4)} · ¿Qué NFT esconde el glitch?` : "Conecta tu wallet de Robinhood para identificarte como jugador."}</p>
+                <p className="mt-3 text-[11px] leading-5 text-neutral-600">Vista previa del sorteo: la asignación real de NFT y su canje por SOL se activarán al definir las bases, cantidades y entrega de premios.</p>
+              </div>
+
+              <div className="mx-auto w-full max-w-[310px]">
+                <div className="relative mx-auto aspect-square w-full">
+                  <div aria-hidden className="absolute -inset-3 rounded-full border border-lime-300/15 shadow-[0_0_50px_-18px_rgba(163,230,53,0.6)]" />
+                  <div aria-hidden className="absolute left-1/2 top-[-8px] z-20 -translate-x-1/2 border-x-[12px] border-t-[22px] border-x-transparent border-t-lime-200 drop-shadow-[0_0_8px_rgba(190,242,100,0.8)]" />
+                  <div aria-label="Ruleta con las ocho cajas de premios de arriba" role="img" className="absolute inset-0 rounded-full border-[5px] border-[#b8f47a] shadow-[inset_0_0_0_5px_rgba(0,0,0,0.65)] transition-transform duration-[5200ms] [transition-timing-function:cubic-bezier(0.12,0.72,0.08,1)]" style={{ transform: `rotate(${wheelRotation}deg)`, background: "conic-gradient(from -22.5deg, #b8f47a 0deg 45deg, #17351f 45deg 90deg, #d2ff91 90deg 135deg, #102719 135deg 180deg, #a6df68 180deg 225deg, #183a24 225deg 270deg, #d2ff91 270deg 315deg, #102719 315deg 360deg)" }}>
+                    {GLITCH_PRIZES.map((prize, index) => <span key={prize.id} className="absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-xl border border-white/50 bg-gradient-to-br from-white/90 to-lime-200 text-lg shadow-[0_3px_10px_rgba(0,0,0,0.35)]" style={{ transform: `translate(-50%, -50%) rotate(${index * 45}deg) translateY(-91px) rotate(-${index * 45}deg)` }}><span aria-hidden>{prize.icon}</span></span>)}
+                  </div>
+                  <div aria-hidden className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-lime-200/70 bg-black text-lime-200 shadow-[0_0_22px_rgba(163,230,53,0.45)]"><Zap className="h-6 w-6" /></div>
                 </div>
-                <div aria-hidden className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-lime-200/70 bg-black text-lime-200 shadow-[0_0_22px_rgba(163,230,53,0.45)]"><Zap className="h-6 w-6" /></div>
               </div>
             </div>
           </div>
@@ -629,6 +755,7 @@ export default function DiscoverPage() {
             className="w-full rounded-full border border-neutral-800 bg-neutral-900 py-3 pl-11 pr-4 text-sm text-neutral-100 placeholder:text-neutral-500 outline-none focus:border-neutral-700 focus:ring-4 focus:ring-white/5"
           />
         </div>
+
       </div>
 
       <div
@@ -691,10 +818,71 @@ export default function DiscoverPage() {
               ))}
             </div>
           )}
-          <Link href="/create" className="inline-flex shrink-0 items-center gap-2 rounded-full bg-neutral-800 px-3 py-2.5 text-xs font-medium text-neutral-100 transition-colors hover:bg-neutral-700 sm:justify-self-end sm:px-4 sm:text-sm">
-              <span className="text-lg leading-none">+</span> Launch token
-          </Link>
+          <a href="#mmg-status" className="inline-flex shrink-0 items-center gap-2 rounded-full border border-lime-300/20 bg-lime-300/5 px-3 py-2.5 text-xs font-semibold text-lime-100 transition-colors hover:bg-lime-300/10 sm:justify-self-end sm:px-4 sm:text-sm">
+            <span className="font-mono font-black">MMG</span> Status
+          </a>
         </div>
+        {!isAncientTab && (
+          <section aria-labelledby="mmg-top-prizes" className="relative isolate overflow-hidden mb-6 rounded-[32px] border border-amber-200/30 bg-[#08070b] px-5 py-8 shadow-[0_30px_100px_-45px_rgba(234,179,8,0.28)] sm:px-8 sm:py-10">
+            <div aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_0%,rgba(234,179,8,0.22),transparent_48%),radial-gradient(ellipse_at_0%_100%,rgba(168,85,247,0.12),transparent_45%),radial-gradient(ellipse_at_100%_100%,rgba(34,211,238,0.12),transparent_45%)]" />
+            <div aria-hidden className="pointer-events-none absolute inset-4 -z-10 rounded-[26px] border border-white/[0.04]" />
+
+            <div className="mx-auto max-w-4xl text-center">
+              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-amber-200/35 bg-amber-200/10 px-4 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.24em] text-amber-100 shadow-[0_0_28px_-12px_rgba(251,191,36,0.8)] sm:text-xs">
+                <Crown className="h-3.5 w-3.5" aria-hidden /> Top 3 premios MMG
+              </div>
+              <h2 id="mmg-top-prizes" className="text-balance text-3xl font-black uppercase tracking-tight text-white sm:text-5xl">
+                The promise of money that simply arrives
+              </h2>
+              <blockquote className="mx-auto mt-5 max-w-3xl text-xl font-medium italic leading-relaxed text-amber-100 sm:text-2xl">
+                “There is no finer form of income than the kind that simply arrives.”
+              </blockquote>
+              <p className="mt-2 text-sm text-neutral-400 sm:text-base">
+                «No existe una forma de ingreso mejor que aquella que simplemente llega.»
+              </p>
+              <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-neutral-300">
+                Airdrops, comisiones compartidas y SOL directo a la wallet: esta era la promesa de recompensas inesperadas de MMG.
+              </p>
+            </div>
+
+            <div className="mx-auto mt-7 grid max-w-6xl gap-4 md:grid-cols-3 md:items-stretch sm:mt-8 sm:gap-5">
+              {MMG_TOP_PRIZES.map(({ rank, eyebrow, figure, title, description, Icon, theme }) => {
+                const themeClass = theme === "gold"
+                  ? "border-amber-200/60 bg-[linear-gradient(155deg,rgba(120,80,12,0.48),rgba(18,14,8,0.96)_55%)] shadow-[0_18px_60px_-25px_rgba(245,158,11,0.42)]"
+                  : theme === "violet"
+                    ? "border-violet-300/40 bg-[linear-gradient(155deg,rgba(88,28,135,0.42),rgba(14,10,22,0.96)_55%)] shadow-[0_18px_60px_-30px_rgba(168,85,247,0.4)]"
+                    : "border-cyan-200/40 bg-[linear-gradient(155deg,rgba(8,92,112,0.4),rgba(8,15,21,0.96)_55%)] shadow-[0_18px_60px_-30px_rgba(34,211,238,0.38)]";
+                const accentClass = theme === "gold" ? "text-amber-100" : theme === "violet" ? "text-violet-100" : "text-cyan-100";
+                const glowClass = theme === "gold" ? "bg-amber-300/15 text-amber-100" : theme === "violet" ? "bg-violet-300/15 text-violet-100" : "bg-cyan-300/15 text-cyan-100";
+
+                return (
+                  <article key={rank} className={`group relative flex min-h-[310px] flex-col overflow-hidden rounded-[26px] border p-5 transition duration-300 hover:-translate-y-1.5 sm:p-6 ${themeClass} ${rank === "01" ? "md:scale-[1.035] md:-translate-y-2" : ""}`}>
+                    <div aria-hidden className={`absolute -right-10 -top-10 h-36 w-36 rounded-full blur-3xl transition group-hover:scale-125 ${glowClass.split(" ")[0]}`} />
+                    <div className="flex items-center justify-between gap-3">
+                      <span className={`font-mono text-[10px] font-bold uppercase tracking-[0.2em] ${accentClass}`}>{eyebrow}</span>
+                      <span className="font-mono text-xs text-white/35">#{rank}</span>
+                    </div>
+                    <div className={`mt-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 ${glowClass}`}>
+                      <Icon className="h-7 w-7" aria-hidden />
+                    </div>
+                    <div className={`mt-4 text-5xl font-black leading-none tracking-[-0.06em] sm:text-6xl ${accentClass}`}>{figure}</div>
+                    <h3 className="mt-3 text-base font-bold leading-6 text-white sm:text-lg">{title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-neutral-300">{description}</p>
+                    <div className="mt-auto pt-5">
+                      <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.16em] text-white/60">
+                        <span className={`h-1.5 w-1.5 rounded-full ${theme === "gold" ? "bg-amber-300" : theme === "violet" ? "bg-violet-300" : "bg-cyan-300"}`} /> Recompensa anunciada
+                      </span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <p className="mx-auto mt-7 max-w-4xl text-center text-[11px] leading-5 text-neutral-500">
+              Presentación de los anuncios atribuidos a MMG; su ejecución, disponibilidad y elegibilidad no se dan por verificadas. La narrativa del proyecto giraba en torno al misterio, los ingresos pasivos y las recompensas inesperadas.
+            </p>
+          </section>
+        )}
         {loading ? (
           <div className="min-h-[420px]" aria-busy="true" aria-live="polite" />
         ) : activeRows.length === 0 ? (
@@ -710,10 +898,8 @@ export default function DiscoverPage() {
               </>
             ) : (
               <>
-                <h2 className="text-lg font-bold text-neutral-100">Create the first hot token</h2>
-                <Link href="/create" className="btn-primary mt-5">
-                  Create token
-                </Link>
+                <h2 className="text-lg font-bold text-neutral-100">MMG is waiting for its on-chain launch</h2>
+                <p className="mt-2 text-sm text-neutral-500">{mmgStatus}. This status changes when MMG appears in the live launch feed.</p>
               </>
             )}
           </div>
@@ -736,6 +922,7 @@ export default function DiscoverPage() {
           </div>
         )}
       </div>
+
     </div>
   );
 }
