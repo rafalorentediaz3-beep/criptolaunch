@@ -2,9 +2,10 @@
 
 import { ArrowDown, ArrowUpRight, Heart, Hourglass, Search, ShieldCheck, Sparkles, Zap } from "lucide-react";
 import Link from "next/link";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useEffect, useMemo, useState } from "react";
 import type { Address, Hex } from "viem";
-import { useReadContracts } from "wagmi";
+import { useAccount, useReadContracts } from "wagmi";
 import { potatoCurvePadAbi, potatoV4PadAbi } from "@/lib/abi";
 import { V4_POOL_MANAGER_ADDRESSES, WETH_ADDRESSES, ZERO_ADDRESS, isMigrated } from "@/lib/config";
 import { useAncientTokens } from "@/lib/ancient";
@@ -45,6 +46,17 @@ const SORTS: { id: SortId; label: string }[] = [
   { id: "old", label: "Oldest" },
 ];
 
+const GLITCH_PRIZES = [
+  "NFT: Loot misterioso",
+  "NFT: Boost de visibilidad",
+  "NFT: Badge glitch",
+  "NFT: Idea destacada",
+  "NFT: Drop sorpresa",
+  "NFT: Glitch dorado",
+  "NFT: Token secreto",
+  "NFT: Un giro extra",
+];
+
 type Slot0 = readonly [bigint, number, number, number, number, number, boolean];
 
 interface CachedMarketCap {
@@ -79,9 +91,14 @@ export default function DiscoverPage() {
   // `weth` is intentionally NOT taken from usePad: the feed is Robinhood-pinned,
   // so pricing uses RH_WETH rather than the connected wallet's chain WETH.
   const { chainId, curvePad, isDeployed } = usePad();
+  const { address: playerWallet } = useAccount();
   const { query, setQuery } = useSearch();
   const [tab, setTab] = useState<TabId>("growing");
   const [sort, setSort] = useState<SortId>("mcap");
+  const [wheelRotation, setWheelRotation] = useState(0);
+  const [wheelSpinning, setWheelSpinning] = useState(false);
+  const [wheelPrize, setWheelPrize] = useState<string | null>(null);
+  const [wheelPrizeWallet, setWheelPrizeWallet] = useState<Address | null>(null);
   const [cachedMarketCaps, setCachedMarketCaps] = useState<Record<string, CachedMarketCap>>({});
   const isAncientTab = tab === "ancient";
   const { usd: ethUsd } = useEthUsdPrice();
@@ -462,6 +479,21 @@ export default function DiscoverPage() {
   const visibleOrderKey = useMemo(() => visible.map((r) => r.address).join(","), [visible]);
   const gridRef = useFlipGrid<HTMLDivElement>(visibleOrderKey);
 
+  function spinGlitchWheel() {
+    if (!playerWallet || wheelSpinning) return;
+    const prizeIndex = Math.floor(Math.random() * GLITCH_PRIZES.length);
+    const landingOffset = 360 - prizeIndex * (360 / GLITCH_PRIZES.length);
+    setWheelPrize(null);
+    setWheelPrizeWallet(null);
+    setWheelSpinning(true);
+    setWheelRotation((current) => current + 360 * 6 + landingOffset);
+    window.setTimeout(() => {
+      setWheelPrize(GLITCH_PRIZES[prizeIndex]);
+      setWheelPrizeWallet(playerWallet);
+      setWheelSpinning(false);
+    }, 5200);
+  }
+
   if (!isDeployed) {
     return <NotDeployed chainId={chainId} />;
   }
@@ -538,6 +570,39 @@ export default function DiscoverPage() {
         >
           hot ideas born here.
         </p>
+
+        <section aria-labelledby="glitch-wheel-title" className="relative overflow-hidden rounded-[28px] border border-lime-300/20 bg-[#050906]/90 px-5 py-8 shadow-[0_24px_80px_-42px_rgba(34,197,94,0.38)] sm:px-8 sm:py-10">
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_40%,rgba(163,230,53,0.12),transparent_58%)]" />
+          <div className="relative mx-auto grid max-w-5xl items-center gap-8 md:grid-cols-[1fr_1fr] md:gap-12">
+            <div className="text-center md:text-left">
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-lime-300/20 bg-lime-300/5 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-lime-300">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-lime-300" /> anomalía detectada
+              </div>
+              <h2 id="glitch-wheel-title" className="text-2xl font-black uppercase tracking-tight text-white sm:text-3xl">La ruleta del glitch</h2>
+              <p className="mt-3 max-w-md text-sm leading-6 text-neutral-400">Una señal extraña ha dejado NFT de premio ocultos en el sistema. Gira para descubrir qué aparece.</p>
+              {playerWallet ? (
+                <button type="button" onClick={spinGlitchWheel} disabled={wheelSpinning} className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-lime-300 px-6 py-3 text-sm font-bold text-black shadow-[0_0_28px_-10px_rgba(163,230,53,0.8)] transition hover:bg-lime-200 disabled:cursor-wait disabled:opacity-60">
+                  <Sparkles className={`h-4 w-4 ${wheelSpinning ? "animate-spin" : ""}`} /> {wheelSpinning ? "Descifrando..." : "Girar la ruleta"}
+                </button>
+              ) : (
+                <ConnectButton.Custom>{({ openConnectModal }) => <button type="button" onClick={openConnectModal} className="mt-6 inline-flex items-center justify-center gap-2 rounded-full bg-lime-300 px-6 py-3 text-sm font-bold text-black shadow-[0_0_28px_-10px_rgba(163,230,53,0.8)] transition hover:bg-lime-200"><Zap className="h-4 w-4" /> Conectar wallet Robinhood</button>}</ConnectButton.Custom>
+              )}
+              <p aria-live="polite" className="mt-4 min-h-6 text-sm font-semibold text-lime-200">{wheelPrize ? `Vista previa para ${wheelPrizeWallet ? `${wheelPrizeWallet.slice(0, 6)}…${wheelPrizeWallet.slice(-4)}` : "tu wallet"}: ${wheelPrize}` : wheelSpinning ? "La señal está cambiando..." : playerWallet ? `Jugador: ${playerWallet.slice(0, 6)}…${playerWallet.slice(-4)} · ¿Qué NFT esconde el glitch?` : "Conecta tu wallet de Robinhood para identificarte como jugador."}</p>
+              <p className="mt-3 text-[11px] leading-5 text-neutral-600">Vista previa del sorteo: la asignación real de NFT y su canje por SOL se activarán al definir las bases, cantidades y entrega de premios.</p>
+            </div>
+
+            <div className="mx-auto w-full max-w-[310px]">
+              <div className="relative mx-auto aspect-square w-full">
+                <div aria-hidden className="absolute -inset-3 rounded-full border border-lime-300/15 shadow-[0_0_50px_-18px_rgba(163,230,53,0.6)]" />
+                <div aria-hidden className="absolute left-1/2 top-[-8px] z-20 -translate-x-1/2 border-x-[12px] border-t-[22px] border-x-transparent border-t-lime-200 drop-shadow-[0_0_8px_rgba(190,242,100,0.8)]" />
+                <div aria-label="Ruleta con ocho premios" role="img" className="absolute inset-0 rounded-full border-[5px] border-[#b8f47a] shadow-[inset_0_0_0_5px_rgba(0,0,0,0.65)] transition-transform duration-[5200ms] [transition-timing-function:cubic-bezier(0.12,0.72,0.08,1)]" style={{ transform: `rotate(${wheelRotation}deg)`, background: "conic-gradient(from -22.5deg, #b8f47a 0deg 45deg, #17351f 45deg 90deg, #d2ff91 90deg 135deg, #102719 135deg 180deg, #a6df68 180deg 225deg, #183a24 225deg 270deg, #d2ff91 270deg 315deg, #102719 315deg 360deg)" }}>
+                  {GLITCH_PRIZES.map((prize, index) => <span key={prize} className="absolute left-1/2 top-1/2 w-[82px] -translate-x-1/2 -translate-y-1/2 text-center font-mono text-[9px] font-bold leading-tight text-black/80" style={{ transform: `translate(-50%, -50%) rotate(${index * 45}deg) translateY(-91px) rotate(-${index * 45}deg)` }}>{prize}</span>)}
+                </div>
+                <div aria-hidden className="absolute left-1/2 top-1/2 z-10 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-lime-200/70 bg-black text-lime-200 shadow-[0_0_22px_rgba(163,230,53,0.45)]"><Zap className="h-6 w-6" /></div>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <div className="relative hidden md:block">
           <Search className="pointer-events-none absolute left-4 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-neutral-600" />
