@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createMatch, stepMatch, idleControls, footPosition, kickAngle, FLOOR, GOAL_LINE, BALL_RADIUS } from "./soccer.ts";
+import { createMatch, stepMatch, idleControls, footPosition, kickAngle, FLOOR, GOAL_LINE, GOAL_TOP, GOAL_BACK, GOAL_FRAME_RADIUS, BALL_RADIUS, WIDTH } from "./soccer.ts";
 
 const kit = { name: "Local", color: "#a8f26c", accent: "#365c1e", skin: "#e8b083", hair: "#33241d", hairstyle: "quiff" };
 const match = () => createMatch(kit, { ...kit, name: "Visitante" });
@@ -63,8 +63,9 @@ test("body contact without shooting does not trigger the kick animation", () => 
 
 test("a goal counts once, pauses and resets the kickoff", () => {
   const game = match();
-  game.ball.x = GOAL_LINE - BALL_RADIUS - 4;
+  game.ball.x = GOAL_LINE - BALL_RADIUS + 2;
   game.ball.y = FLOOR - BALL_RADIUS;
+  game.ball.vx = -500;
   stepMatch(game, [input(), input()], 1 / 120, "local");
   assert.deepEqual(game.score, [0, 1]);
   assert.equal(game.phase, "goal");
@@ -73,6 +74,77 @@ test("a goal counts once, pauses and resets the kickoff", () => {
   assert.deepEqual(game.score, [0, 1]);
   assert.equal(game.ball.x, 500);
 });
+
+for (const left of [true, false]) {
+  const side = left ? "left" : "right";
+  const mirror = (x) => left ? x : WIDTH - x;
+  const direction = left ? 1 : -1;
+  const roofY = GOAL_TOP - GOAL_FRAME_RADIUS - BALL_RADIUS;
+
+  test(`${side} goal roof catches a falling ball and lets it settle on top`, () => {
+    const game = match();
+    game.ball.x = mirror((GOAL_BACK + GOAL_LINE) / 2);
+    game.ball.y = roofY - 28;
+    game.ball.vy = 180;
+    advance(game, 2);
+    assert.equal(game.phase, "playing");
+    assert.deepEqual(game.score, [0, 0]);
+    assert.ok(Math.abs(game.ball.y - roofY) < 0.001);
+    assert.equal(game.ball.vy, 0);
+  });
+
+  test(`${side} roof supports a rolling ball until it rolls off toward the field`, () => {
+    const game = match();
+    game.ball.x = mirror((GOAL_BACK + GOAL_LINE) / 2);
+    game.ball.y = roofY;
+    game.ball.vx = direction * 130;
+    advance(game, 0.1);
+    assert.ok(game.ball.y <= roofY + 0.001);
+    advance(game, 1);
+    assert.ok((game.ball.x - mirror(GOAL_LINE)) * direction > BALL_RADIUS);
+    assert.ok(game.ball.y > roofY + 10);
+    assert.deepEqual(game.score, [0, 0]);
+  });
+
+  test(`${side} roof also blocks the ball from below`, () => {
+    const game = match();
+    game.ball.x = mirror((GOAL_BACK + GOAL_LINE) / 2);
+    game.ball.y = GOAL_TOP + GOAL_FRAME_RADIUS + BALL_RADIUS + 4;
+    game.ball.vy = -220;
+    advance(game, 0.12);
+    assert.ok(game.ball.y >= GOAL_TOP + GOAL_FRAME_RADIUS + BALL_RADIUS);
+    assert.ok(game.ball.vy > 0);
+    assert.deepEqual(game.score, [0, 0]);
+  });
+
+  test(`${side} crossbar and rear support bounce the ball`, () => {
+    const game = match();
+    game.ball.x = mirror(GOAL_LINE + BALL_RADIUS + GOAL_FRAME_RADIUS + 2);
+    game.ball.y = GOAL_TOP;
+    game.ball.vx = -direction * 180;
+    advance(game, 0.08);
+    assert.ok(game.ball.vx * direction > 0);
+    assert.deepEqual(game.score, [0, 0]);
+
+    game.ball.x = mirror(GOAL_BACK + BALL_RADIUS + GOAL_FRAME_RADIUS + 2);
+    game.ball.y = GOAL_TOP + 65;
+    game.ball.vx = -direction * 180;
+    game.ball.vy = 0;
+    advance(game, 0.08);
+    assert.ok(game.ball.vx * direction > 0);
+    assert.deepEqual(game.score, [0, 0]);
+  });
+
+  test(`${side} goal still accepts a shot through the open mouth`, () => {
+    const game = match();
+    game.ball.x = mirror(GOAL_LINE - BALL_RADIUS + 2);
+    game.ball.y = GOAL_TOP + 60;
+    game.ball.vx = -direction * 500;
+    stepMatch(game, [input(), input()], 1 / 120, "local");
+    assert.equal(game.phase, "goal");
+    assert.deepEqual(game.score, left ? [0, 1] : [1, 0]);
+  });
+}
 
 test("CPU pursues the ball without keyboard input", () => {
   const game = match();

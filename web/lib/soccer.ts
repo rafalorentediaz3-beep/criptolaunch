@@ -22,8 +22,10 @@ export type Match = {
 export const WIDTH = 1000;
 export const HEIGHT = 480;
 export const FLOOR = 420;
-export const GOAL_LINE = 62;
-export const GOAL_TOP = 294;
+export const GOAL_LINE = 82;
+export const GOAL_TOP = 270;
+export const GOAL_BACK = 10;
+export const GOAL_FRAME_RADIUS = 5;
 export const BALL_RADIUS = 15;
 export const KICK_DURATION = 0.3;
 export const idleControls = (): Controls => ({ left: false, right: false, jump: false, shoot: false });
@@ -98,6 +100,32 @@ function collideCircle(game: Match, x: number, y: number, radius: number, vx = 0
   }
 }
 
+function collideGoalFrame(game: Match, x1: number, y1: number, x2: number, y2: number, dt: number) {
+  const ball = game.ball;
+  const lengthSquared = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+  const along = clamp(((ball.x - x1) * (x2 - x1) + (ball.y - y1) * (y2 - y1)) / lengthSquared, 0, 1);
+  const dx = ball.x - (x1 + along * (x2 - x1));
+  const dy = ball.y - (y1 + along * (y2 - y1));
+  const distance = Math.hypot(dx, dy);
+  const radius = BALL_RADIUS + GOAL_FRAME_RADIUS;
+  if (distance >= radius) return;
+  const nx = distance > 0.001 ? dx / distance : 0;
+  const ny = distance > 0.001 ? dy / distance : -1;
+  ball.x += nx * (radius - distance);
+  ball.y += ny * (radius - distance);
+  const approach = ball.vx * nx + ball.vy * ny;
+  if (approach < 0) {
+    // Small downward impacts settle on the roof instead of bouncing forever.
+    const bounce = ny < -0.9 && -approach < 75 ? 0 : 0.7;
+    ball.vx -= (1 + bounce) * approach * nx;
+    ball.vy -= (1 + bounce) * approach * ny;
+  }
+  if (ny < -0.9) {
+    ball.vx *= Math.exp(-1.2 * dt);
+    if (Math.abs(ball.vx) < 0.8) ball.vx = 0;
+  }
+}
+
 export function stepMatch(game: Match, inputs: [Controls, Controls], dt: number, mode: GameMode) {
   if (game.phase === "finished") return;
   if (game.phase === "goal") {
@@ -109,6 +137,7 @@ export function stepMatch(game: Match, inputs: [Controls, Controls], dt: number,
   if (game.seconds === 0) { game.phase = "finished"; return; }
 
   const ball = game.ball;
+  const previousBallX = ball.x;
   for (const player of game.players) {
     const control = mode === "solo" && player.side === 1 ? cpuControls(game) : inputs[player.side];
     const speed = mode === "solo" && player.side === 1 ? 250 : 305;
@@ -163,20 +192,24 @@ export function stepMatch(game: Match, inputs: [Controls, Controls], dt: number,
     }
   }
 
-  // Crossbars are solid; goals only count when the whole ball crosses the line.
-  collideCircle(game, GOAL_LINE, GOAL_TOP, 5);
-  collideCircle(game, WIDTH - GOAL_LINE, GOAL_TOP, 5);
+  // Both roofs and their rear supports are solid segments with rounded ends.
+  // The open front stays passable so shots can enter beneath the crossbar.
+  collideGoalFrame(game, GOAL_BACK, GOAL_TOP, GOAL_LINE, GOAL_TOP, dt);
+  collideGoalFrame(game, WIDTH - GOAL_LINE, GOAL_TOP, WIDTH - GOAL_BACK, GOAL_TOP, dt);
+  collideGoalFrame(game, GOAL_BACK, GOAL_TOP, GOAL_BACK, FLOOR, dt);
+  collideGoalFrame(game, WIDTH - GOAL_BACK, GOAL_TOP, WIDTH - GOAL_BACK, FLOOR, dt);
   if (ball.y + BALL_RADIUS > FLOOR) {
     ball.y = FLOOR - BALL_RADIUS;
     ball.vy = Math.abs(ball.vy) < 65 ? 0 : -Math.abs(ball.vy) * 0.69;
     ball.vx *= Math.exp(-0.8 * dt);
   }
   if (ball.y - BALL_RADIUS < 145) { ball.y = 145 + BALL_RADIUS; ball.vy = Math.abs(ball.vy) * 0.7; }
-  if (ball.y - BALL_RADIUS < GOAL_TOP) {
-    if (ball.x < BALL_RADIUS) { ball.x = BALL_RADIUS; ball.vx = Math.abs(ball.vx) * 0.75; }
-    if (ball.x > WIDTH - BALL_RADIUS) { ball.x = WIDTH - BALL_RADIUS; ball.vx = -Math.abs(ball.vx) * 0.75; }
-  } else if (ball.x + BALL_RADIUS < GOAL_LINE || ball.x - BALL_RADIUS > WIDTH - GOAL_LINE) {
-    const scorer = ball.x < WIDTH / 2 ? 1 : 0;
+  if (ball.x < BALL_RADIUS) { ball.x = BALL_RADIUS; ball.vx = Math.abs(ball.vx) * 0.75; }
+  if (ball.x > WIDTH - BALL_RADIUS) { ball.x = WIDTH - BALL_RADIUS; ball.vx = -Math.abs(ball.vx) * 0.75; }
+  const crossedLeft = previousBallX + BALL_RADIUS >= GOAL_LINE && ball.x + BALL_RADIUS < GOAL_LINE;
+  const crossedRight = previousBallX - BALL_RADIUS <= WIDTH - GOAL_LINE && ball.x - BALL_RADIUS > WIDTH - GOAL_LINE;
+  if (ball.y - BALL_RADIUS > GOAL_TOP + GOAL_FRAME_RADIUS && (crossedLeft || crossedRight)) {
+    const scorer = crossedLeft ? 1 : 0;
     game.score[scorer]++;
     game.scorer = scorer;
     game.phase = "goal";

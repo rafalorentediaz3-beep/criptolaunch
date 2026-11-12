@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  WIDTH as W, HEIGHT as H, FLOOR, GOAL_TOP, GOAL_LINE,
+  WIDTH as W, HEIGHT as H, FLOOR, GOAL_TOP, GOAL_LINE, GOAL_BACK, GOAL_FRAME_RADIUS,
   createMatch, stepMatch, kickAngle, idleControls,
   type GameMode, type Team, type Match, type Player, type Controls,
 } from "@/lib/soccer";
@@ -99,14 +99,26 @@ function draw(ctx: CanvasRenderingContext2D, game: Match, mode: GameMode) {
   ctx.beginPath(); ctx.arc(W / 2, 330, 55, 0, Math.PI * 2); ctx.stroke();
   ctx.strokeRect(0, 267, 118, FLOOR - 267); ctx.strokeRect(W - 118, 267, 118, FLOOR - 267);
   for (const left of [true, false]) {
-    const gx = left ? 10 : W - GOAL_LINE;
-    const width = GOAL_LINE - 10;
-    ctx.fillStyle = "rgba(255,255,255,.23)"; ctx.fillRect(gx, GOAL_TOP, width, FLOOR - GOAL_TOP);
-    ctx.strokeStyle = "#fff"; ctx.lineWidth = 7; ctx.beginPath();
-    ctx.moveTo(gx, GOAL_TOP); ctx.lineTo(gx + width, GOAL_TOP); ctx.moveTo(left ? GOAL_LINE : W - GOAL_LINE, GOAL_TOP); ctx.lineTo(left ? GOAL_LINE : W - GOAL_LINE, FLOOR); ctx.stroke();
-    ctx.strokeStyle = "rgba(255,255,255,.45)"; ctx.lineWidth = 1;
-    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(gx + i * 17, GOAL_TOP); ctx.lineTo(gx + i * 17, FLOOR); ctx.stroke(); }
-    for (let i = 0; i < 8; i++) { ctx.beginPath(); ctx.moveTo(gx, GOAL_TOP + i * 17); ctx.lineTo(gx + width, GOAL_TOP + i * 17); ctx.stroke(); }
+    const gx = left ? GOAL_BACK : W - GOAL_LINE;
+    const width = GOAL_LINE - GOAL_BACK;
+    const front = left ? GOAL_LINE : W - GOAL_LINE;
+    const back = left ? GOAL_BACK : W - GOAL_BACK;
+    ctx.save();
+    ctx.fillStyle = "rgba(13,47,24,.2)";
+    ctx.beginPath(); ctx.ellipse(gx + width / 2, FLOOR + 3, width / 2 + 10, 7, 0, 0, Math.PI * 2); ctx.fill();
+    // The side net has depth, a rear support and a solid horizontal roof.
+    ctx.fillStyle = "rgba(238,248,255,.15)"; ctx.fillRect(gx, GOAL_TOP, width, FLOOR - GOAL_TOP);
+    ctx.strokeStyle = "rgba(255,255,255,.58)"; ctx.lineWidth = 1;
+    for (let x = gx + 12; x < gx + width; x += 12) { ctx.beginPath(); ctx.moveTo(x, GOAL_TOP); ctx.lineTo(x, FLOOR); ctx.stroke(); }
+    for (let y = GOAL_TOP + 12; y < FLOOR; y += 12) { ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx + width, y); ctx.stroke(); }
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(23,48,57,.35)"; ctx.lineWidth = GOAL_FRAME_RADIUS * 2 + 3;
+    ctx.beginPath(); ctx.moveTo(back, FLOOR); ctx.lineTo(back, GOAL_TOP); ctx.lineTo(front, GOAL_TOP); ctx.lineTo(front, FLOOR); ctx.stroke();
+    ctx.strokeStyle = "#e3edf3"; ctx.lineWidth = GOAL_FRAME_RADIUS * 2;
+    ctx.beginPath(); ctx.moveTo(back, FLOOR); ctx.lineTo(back, GOAL_TOP); ctx.lineTo(front, GOAL_TOP); ctx.lineTo(front, FLOOR); ctx.stroke();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(gx, GOAL_TOP - 2); ctx.lineTo(gx + width, GOAL_TOP - 2); ctx.moveTo(gx, FLOOR); ctx.lineTo(gx + width, FLOOR); ctx.stroke();
+    ctx.restore();
   }
 
   // Scoreboard with each team's name and kit color.
