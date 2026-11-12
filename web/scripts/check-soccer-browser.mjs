@@ -72,6 +72,8 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 1000, deviceScaleFactor: 1, mobile: false });
   await send("Page.navigate", { url });
   await waitFor("[...document.querySelectorAll('button')].some(b => b.textContent === 'Jugar ahora')");
+  // The server renders buttons before hydration; wait for the first canvas frame.
+  await waitFor("document.querySelector('canvas').getContext('2d').getImageData(0,0,1,1).data[3] > 0");
   await evaluate("[...document.querySelectorAll('button')].find(b => b.textContent === 'Jugar ahora').click()");
   await waitFor("document.body.textContent.includes('Partido en curso')");
   await delay(200);
