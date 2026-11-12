@@ -5,10 +5,10 @@ import { useState, type ReactNode } from "react";
 import { BigHeadSoccer, type GameMode, type Team } from "@/components/BigHeadSoccer";
 
 const TEAMS: Team[] = [
-  { name: "Lima FC", color: "#a8f26c", accent: "#365c1e", face: "😎" },
-  { name: "Costa Azul", color: "#70cfff", accent: "#17456e", face: "🤩" },
-  { name: "Rayo Rojo", color: "#ff7777", accent: "#702a35", face: "🥸" },
-  { name: "Naranja CF", color: "#ffb457", accent: "#80451f", face: "🤓" },
+  { name: "Lima FC", color: "#a8f26c", accent: "#365c1e", skin: "#e8b083", hair: "#33241d", hairstyle: "quiff" },
+  { name: "Costa Azul", color: "#70cfff", accent: "#17456e", skin: "#b97951", hair: "#201c23", hairstyle: "curly" },
+  { name: "Rayo Rojo", color: "#ff7777", accent: "#702a35", skin: "#f1c9a3", hair: "#8b5026", hairstyle: "swept" },
+  { name: "Naranja CF", color: "#ffb457", accent: "#80451f", skin: "#9c6043", hair: "#1f1b1a", hairstyle: "crop" },
 ];
 
 export default function HomePage() {
@@ -54,17 +54,17 @@ export default function HomePage() {
           </div>
 
           <div className="grid gap-4 border-b border-white/[0.07] p-4 sm:grid-cols-[1fr_auto_1fr] sm:items-center sm:px-6">
-            <TeamPicker label="Local" team={home} onChange={setHome} />
+            <TeamPicker label="Local" team={home} onChange={(team) => { setHome(team); setMatch(0); }} />
             <span className="justify-self-center rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-black text-slate-400">VS</span>
-            <TeamPicker label={mode === "solo" ? "Rival CPU" : "Visitante"} team={away} onChange={setAway} />
+            <TeamPicker label={mode === "solo" ? "Rival CPU" : "Visitante"} team={away} onChange={(team) => { setAway(team); setMatch(0); }} />
           </div>
 
           <div className="grid grid-cols-2 gap-2 border-b border-white/[0.07] p-3 sm:px-6">
-            <ModeButton active={mode === "solo"} onClick={() => setMode("solo")} icon={<Bot className="h-4 w-4" />} title="Un jugador" subtitle="Contra la CPU" />
-            <ModeButton active={mode === "local"} onClick={() => setMode("local")} icon={<Users className="h-4 w-4" />} title="Dos jugadores" subtitle="Mismo teclado" />
+            <ModeButton active={mode === "solo"} onClick={() => { setMode("solo"); setMatch(0); }} icon={<Bot className="h-4 w-4" />} title="Un jugador" subtitle="Contra la CPU" />
+            <ModeButton active={mode === "local"} onClick={() => { setMode("local"); setMatch(0); }} icon={<Users className="h-4 w-4" />} title="Dos jugadores" subtitle="Mismo teclado" />
           </div>
 
-          <BigHeadSoccer key={gameKey} active={match > 0} mode={mode} home={home} away={away} />
+          <BigHeadSoccer key={gameKey} active={match > 0} mode={mode} home={home} away={away} onStart={() => setMatch((value) => value + 1)} />
         </div>
 
         <aside className="space-y-5">
