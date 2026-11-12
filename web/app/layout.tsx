@@ -3,8 +3,6 @@ import type { ReactNode } from "react";
 import Script from "next/script";
 import "./globals.css";
 import { Providers } from "./providers";
-import { ChainSync } from "@/components/ChainSync";
-import { DisclaimerGate } from "@/components/DisclaimerGate";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { SearchProvider } from "@/components/SearchContext";
@@ -14,13 +12,12 @@ export const metadata: Metadata = {
   // Absolute base for OG/Twitter image URLs (per-token cards live under
   // /token/[address]/opengraph-image). Override via NEXT_PUBLIC_SITE_URL.
   metadataBase: new URL(SITE_URL),
-  title: "nassdaq.lol -- Launch your hottest ideas",
-  description:
-    "Single-sided token launchpad: plant a coin and it launches straight into a locked Uniswap V3 position, live and tradable from the first block. Open-source MVP, demo only.",
+  title: "Futboleros Cabezones | Minijuegos para retar a tus amigos",
+  description: "Entra a la cancha, juega minijuegos rápidos y reta a tus amigos.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0a",
+  themeColor: "#0b121a",
   colorScheme: "dark",
 };
 
@@ -29,7 +26,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   // client at build. Prod-only so localhost / dev traffic never hits analytics.
   const gaId = process.env.NEXT_PUBLIC_GA_ID;
   return (
-    <html lang="en">
+    <html lang="es">
       <body>
         {/* Ambient screen-glow: a single faint, neutral top light for terminal
             depth. No warm tint — brand color is reserved for accents. */}
@@ -49,14 +46,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </>
         )}
         <Providers>
-          <ChainSync />
-          <DisclaimerGate />
           <SearchProvider>
             <div className="flex min-h-screen flex-col">
-              <div className="sticky top-0 z-40">
-                <Header />
-              </div>
-              <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">
+              <Header />
+              <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
                 {children}
               </main>
               <Footer />

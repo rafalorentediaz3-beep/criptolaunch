@@ -5,8 +5,8 @@
 @layer base {
   body {
     @apply text-neutral-100 antialiased selection:bg-lime-900/60;
-    background-color: #050806;
-    background-image: radial-gradient(ellipse at 50% -15%, rgba(34, 197, 94, 0.09), transparent 48%);
+    background-color: #0b121a;
+    background-image: radial-gradient(ellipse at 50% -15%, rgba(112, 207, 255, 0.08), transparent 48%);
     background-attachment: fixed;
   }
 }
